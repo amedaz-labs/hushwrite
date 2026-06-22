@@ -140,6 +140,7 @@ const Markdown = ({
   titleCache = {},
   onLockRef,
   onIsUnlockedRef,
+  onSaveBeforeNewRef,
   vaultMode = false,
   isComposingNew = false,
 }) => {
@@ -190,6 +191,22 @@ const Markdown = ({
     ta.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
   };
 
+  // Move the caret from the title field into the editor body (Enter in the
+  // title should drop into the first paragraph, like Notion / Apple Notes).
+  const focusEditor = () => {
+    const host = editorContainerRef.current;
+    const pm = host?.querySelector(".ProseMirror");
+    if (!pm) return;
+    pm.focus();
+    const sel = window.getSelection?.();
+    if (!sel) return;
+    const range = document.createRange();
+    range.selectNodeContents(pm);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  };
+
   const handleEditorClick = (e) => {
     const host = editorContainerRef.current;
     if (!host) return;
@@ -229,6 +246,7 @@ const Markdown = ({
     unlockCurrent,
     switchToNote,
     saveManual,
+    saveBeforeLeaving,
     changePassphrase,
     deleteCurrent,
     deleteVaultNote,
@@ -249,6 +267,7 @@ const Markdown = ({
   useEffect(() => {
     if (onLockRef) onLockRef.current = lock;
     if (onIsUnlockedRef) onIsUnlockedRef.current = isUnlocked;
+    if (onSaveBeforeNewRef) onSaveBeforeNewRef.current = saveBeforeLeaving;
   });
 
   useEffect(() => {
@@ -685,7 +704,18 @@ const Markdown = ({
                 type="text"
                 placeholder="Untitled"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                maxLength={100}
+                onChange={(e) => setTitle(e.target.value.slice(0, 100))}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === "Enter" &&
+                    !e.shiftKey &&
+                    !e.nativeEvent.isComposing
+                  ) {
+                    e.preventDefault();
+                    focusEditor();
+                  }
+                }}
                 className="mb-8 w-full border-none bg-transparent text-4xl font-bold tracking-tight text-on-surface placeholder-outline-variant outline-none focus:ring-0"
               />
               <div

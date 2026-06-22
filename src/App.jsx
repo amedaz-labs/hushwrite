@@ -26,6 +26,12 @@ const App = () => {
 
   const lockRef = useRef(() => {});
   const isUnlockedRef = useRef(() => false);
+  // Saves the current note/draft (prompting for a passphrase if needed) before
+  // a new note replaces it. Resolves false if the user cancels, so we keep the
+  // current draft instead of discarding it.
+  const saveBeforeNewRef = useRef(async () => true);
+  const saveBeforeNew = () =>
+    saveBeforeNewRef.current ? saveBeforeNewRef.current() : Promise.resolve(true);
   const [, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 1000);
@@ -84,7 +90,11 @@ const App = () => {
     });
   }, [notes]);
 
-  const handleNewNote = () => {
+  const handleNewNote = async () => {
+    // Treat "New Note" like a save first: persist the current draft (prompting
+    // for a passphrase if needed) so unsaved work isn't lost. If the user
+    // cancels, stay on the current note instead of discarding it.
+    if (!(await saveBeforeNew())) return;
     setMarkdown("");
     setTitle("");
     setCurrentId(null);
@@ -107,7 +117,10 @@ const App = () => {
     toast("Session locked", { icon: "🔒" });
   };
 
-  const handleNewNoteInVault = () => {
+  const handleNewNoteInVault = async () => {
+    // Save the current draft under its current section before switching to the
+    // vault, then create the new note (handleNewNote's own save is a no-op now).
+    if (!(await saveBeforeNew())) return;
     setActiveSection("vault");
     handleNewNote();
   };
@@ -184,6 +197,7 @@ const App = () => {
           titleCache={titleCache}
           onLockRef={lockRef}
           onIsUnlockedRef={isUnlockedRef}
+          onSaveBeforeNewRef={saveBeforeNewRef}
           vaultMode={activeSection === "vault"}
           isComposingNew={isComposingNew}
         />

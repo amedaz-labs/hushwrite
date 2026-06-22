@@ -396,6 +396,35 @@ export function useNoteSession({
     return "encrypted";
   }, [persistNote, askPassphrase, isUnlocked, currentId, vaultEnabled, vault]);
 
+  // Save the current note/draft exactly like the Save button before the user
+  // navigates away (e.g. presses "New Note"), so unsaved work is never silently
+  // discarded. Returns true when it's safe to proceed, false when the caller
+  // should stay put (user cancelled the passphrase, or the draft can't be saved
+  // yet — so we don't lose it).
+  const saveBeforeLeaving = useCallback(async () => {
+    if (!isDirty()) return true;
+    const hasBody = !!markdown.trim();
+    const hasTitle = !!title.trim();
+
+    // Nothing worth keeping.
+    if (!hasBody && !hasTitle) return true;
+    // Title-only draft has no body to save — let it go.
+    if (!hasBody) return true;
+    // Body but no title: can't encrypt/save it, but don't discard it either.
+    if (!hasTitle) {
+      toast.error("Add a title to save this note before starting a new one.");
+      return false;
+    }
+
+    try {
+      await saveManual();
+      return true;
+    } catch (err) {
+      if (!isQuietErr(err)) toast.error(err.message);
+      return false; // cancelled or failed — keep the draft on screen
+    }
+  }, [isDirty, markdown, title, saveManual]);
+
 
   // Shared cleanup after either delete path succeeds. Drops the in-memory
   // session key, clears the editor, and refreshes the sidebar list.
@@ -561,6 +590,7 @@ export function useNoteSession({
     unlockCurrent,
     switchToNote,
     saveManual,
+    saveBeforeLeaving,
     changePassphrase,
     deleteCurrent,
     deleteVaultNote,

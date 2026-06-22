@@ -233,7 +233,10 @@ const NoteList = ({
   };
 
   const scoped = useMemo(() => {
-    return notes.filter((n) => (inVault ? n.vault === true : n.vault !== true));
+    const ts = (n) => new Date(n.updatedAt || n.createdAt || 0).getTime();
+    return notes
+      .filter((n) => (inVault ? n.vault === true : n.vault !== true))
+      .sort((a, b) => ts(b) - ts(a)); // most recently edited first
   }, [notes, inVault]);
 
   const filtered = scoped;
