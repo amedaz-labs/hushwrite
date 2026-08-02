@@ -20,6 +20,11 @@ dev-dist/workbox-*.js
 .env.local
 .env.*.local
 
+# Cloudflare Workers local dev state (miniflare sandbox + build tmp).
+# Regenerate with: cd api && npm run db:migrate
+.wrangler/
+.dev.vars
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
