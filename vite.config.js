@@ -4,6 +4,15 @@ import { VitePWA } from "vite-plugin-pwa";
 import path from "node:path";
 
 export default defineConfig({
+  // 4874 = "HUSH" on a phone keypad — unlikely to collide with anything else.
+  server: {
+    port: 4874,
+    strictPort: true,
+  },
+  preview: {
+    port: 4874,
+    strictPort: true,
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

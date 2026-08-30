@@ -3,7 +3,7 @@
 #   docker compose run --rm app npm install
 #   docker compose run --rm app npm run build
 #   docker compose run --rm app npm run lint
-#   docker compose up dev          # Vite on http://localhost:5173
+#   docker compose up dev          # Vite on http://localhost:4874
 #   docker compose up api          # Wrangler on http://localhost:8787
 #
 # node_modules lives in named volumes, NOT on the host bind mount. This is
@@ -31,7 +31,7 @@ services:
     <<: *node
     command: npm run dev -- --host 0.0.0.0
     ports:
-      - "5173:5173"
+      - "4874:4874"
 
   # Cloudflare Workers API (api/ has its own package.json).
   api:
