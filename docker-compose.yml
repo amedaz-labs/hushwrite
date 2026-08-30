@@ -1,0 +1,46 @@
+# All Node/npm work for hushwrite runs in here — never on the host.
+#
+#   docker compose run --rm app npm install
+#   docker compose run --rm app npm run build
+#   docker compose run --rm app npm run lint
+#   docker compose up dev          # Vite on http://localhost:5173
+#   docker compose up api          # Wrangler on http://localhost:8787
+#
+# node_modules lives in named volumes, NOT on the host bind mount. This is
+# deliberate: native binaries (rolldown, esbuild) are platform-specific, so a
+# macOS-installed node_modules cannot be reused by a Linux container.
+
+x-node: &node
+  image: node:22-slim
+  working_dir: /app
+  environment:
+    NPM_CONFIG_UPDATE_NOTIFIER: "false"
+    NPM_CONFIG_FUND: "false"
+  volumes:
+    - .:/app
+    - node_modules:/app/node_modules
+    - api_node_modules:/app/api/node_modules
+
+services:
+  # One-off commands: docker compose run --rm app <cmd>
+  app:
+    <<: *node
+
+  # Vite dev server. --host binds 0.0.0.0 so it is reachable from macOS.
+  dev:
+    <<: *node
+    command: npm run dev -- --host 0.0.0.0
+    ports:
+      - "5173:5173"
+
+  # Cloudflare Workers API (api/ has its own package.json).
+  api:
+    <<: *node
+    working_dir: /app/api
+    command: npm run dev -- --ip 0.0.0.0
+    ports:
+      - "8787:8787"
+
+volumes:
+  node_modules:
+  api_node_modules:

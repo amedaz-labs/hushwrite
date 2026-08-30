@@ -464,7 +464,7 @@ const Markdown = ({
   const hasNoteOpen = !!currentId || isComposingNew;
 
   return (
-    <section className="relative flex flex-1 flex-col bg-surface">
+    <section className="relative flex min-w-0 flex-1 flex-col bg-surface">
       {modal?.type === "passphrase" && !suppressPassphraseModal && (
         <PassphraseModal
           mode={modal.mode}
@@ -506,24 +506,26 @@ const Markdown = ({
       ) : (
       <>
       {/* Toolbar / status bar */}
-      <div className="flex h-12 items-center justify-between border-b border-outline-variant/10 px-6">
-        <div className="flex items-center gap-1">
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-outline-variant/10 px-3 sm:px-6">
+        <div className="flex min-w-0 items-center gap-1">
           {!isLocked && (
             <>
-              <ExportNote note={{ content: markdown, title }} />
-              {currentId && (
-                <>
-                  <div className="mx-1 h-4 w-px bg-outline-variant/30" />
-                  <button
-                    onClick={handleDelete}
-                    title="Delete note (requires passphrase)"
-                    className="rounded p-1.5 text-outline transition-all hover:bg-error-container/30 hover:text-error"
-                  >
-                    <Icon name="delete" className="text-xl" />
-                  </button>
-                </>
-              )}
-              <div className="mx-1 h-4 w-px bg-outline-variant/30" />
+              <div className="flex min-w-0 shrink items-center gap-1 overflow-x-auto">
+                <ExportNote note={{ content: markdown, title }} />
+                {currentId && (
+                  <>
+                    <div className="mx-1 h-4 w-px bg-outline-variant/30" />
+                    <button
+                      onClick={handleDelete}
+                      title="Delete note (requires passphrase)"
+                      className="rounded p-1.5 text-outline transition-all hover:bg-error-container/30 hover:text-error"
+                    >
+                      <Icon name="delete" className="text-xl" />
+                    </button>
+                  </>
+                )}
+              </div>
+              <div className="mx-1 h-4 w-px shrink-0 bg-outline-variant/30" />
               <AIActionsMenu
                 markdown={markdown}
                 setMarkdown={setMarkdown}
@@ -537,8 +539,8 @@ const Markdown = ({
             </>
           )}
         </div>
-        <div className="flex items-center gap-3 text-[11px] font-medium text-on-surface-variant">
-          <span className="tabular-nums tracking-wide">
+        <div className="flex shrink-0 items-center gap-2 text-[11px] font-medium text-on-surface-variant sm:gap-3">
+          <span className="hidden tabular-nums tracking-wide sm:inline">
             {wordCount.toLocaleString()} WORDS
           </span>
           <div className="flex items-center gap-1 rounded-full bg-surface-container-low px-2.5 py-1">
@@ -574,10 +576,10 @@ const Markdown = ({
 
       {/* Body */}
       {isLocked ? (
-        <div className="flex flex-1 items-center justify-center p-8">
+        <div className="flex flex-1 items-center justify-center p-4 md:p-8">
           <form
             onSubmit={handleInlineUnlock}
-            className="flex w-full max-w-md flex-col items-center gap-5 rounded-xl bg-surface-container-low p-10 text-center"
+            className="flex w-full max-w-md flex-col items-center gap-5 rounded-xl bg-surface-container-low p-6 text-center md:p-10"
           >
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary-container/20 ring-1 ring-vault-primary/30">
               <Icon name="lock" className="text-2xl text-vault-primary" />
@@ -604,7 +606,7 @@ const Markdown = ({
               onChange={(e) => setInlinePassphrase(e.target.value)}
               placeholder="Passphrase"
               className={cn(
-                "w-full rounded-lg border bg-surface-container px-4 py-2.5 text-sm text-on-surface placeholder-outline transition-all focus:outline-none",
+                "w-full rounded-lg border bg-surface-container px-4 py-2.5 text-base text-on-surface placeholder-outline transition-all focus:outline-none sm:text-sm",
                 unlockError
                   ? "border-error/60 focus:border-error"
                   : "border-outline-variant/30 focus:border-vault-primary/60",
@@ -648,15 +650,15 @@ const Markdown = ({
           </form>
         </div>
       ) : (
-        <div className="relative flex flex-1 overflow-hidden">
+        <div className="relative flex flex-1 flex-col overflow-hidden md:flex-row">
           {aiSnapshot && (
-            <div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2">
-              <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-vault-primary/30 bg-surface-container px-4 py-2 shadow-2xl shadow-vault-primary/20">
+            <div className="pointer-events-none absolute inset-x-2 top-2 z-30 flex justify-center md:inset-x-auto md:left-1/2 md:top-4 md:-translate-x-1/2">
+              <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-2 rounded-2xl border border-vault-primary/30 bg-surface-container px-3 py-2 shadow-2xl shadow-vault-primary/20 sm:gap-3 sm:rounded-full sm:px-4">
                 <div className="flex items-center gap-1.5 text-xs font-semibold tracking-tight text-vault-primary">
                   <Icon name="auto_awesome" className="text-sm" />
                   AI · {aiSnapshot.label}
                 </div>
-                <span className="h-4 w-px bg-outline-variant/30" />
+                <span className="hidden h-4 w-px bg-outline-variant/30 sm:block" />
                 <button
                   onClick={() => {
                     setMarkdown(aiSnapshot.markdown);
@@ -694,8 +696,10 @@ const Markdown = ({
               dst.scrollTop = ratio * (dst.scrollHeight - dst.clientHeight);
             }}
             className={cn(
-              "flex flex-col overflow-y-auto px-12 py-12",
-              showPreview ? "flex-1 border-r border-outline-variant/10" : "w-full",
+              "flex min-w-0 flex-col overflow-y-auto px-4 py-6 sm:px-8 md:pl-20 md:pr-12 md:py-12",
+              showPreview
+                ? "hidden flex-1 border-outline-variant/10 md:flex md:border-r"
+                : "w-full",
               aiSnapshot && "pt-20",
             )}
           >
@@ -716,7 +720,7 @@ const Markdown = ({
                     focusEditor();
                   }
                 }}
-                className="mb-8 w-full border-none bg-transparent text-4xl font-bold tracking-tight text-on-surface placeholder-outline-variant outline-none focus:ring-0"
+                className="mb-6 w-full border-none bg-transparent text-3xl font-bold tracking-tight text-on-surface placeholder-outline-variant outline-none focus:ring-0 md:mb-8 md:text-4xl"
               />
               <div
                 ref={editorContainerRef}
@@ -731,7 +735,7 @@ const Markdown = ({
             </div>
           </div>
           {showPreview && (
-            <div className="flex w-[42%] flex-col overflow-y-auto bg-surface-container-low p-6">
+            <div className="flex w-full min-w-0 flex-col overflow-y-auto bg-surface-container-low p-4 md:w-[42%] md:p-6">
               <Preview
                 markdown={markdown}
                 onChange={setMarkdown}
@@ -765,7 +769,7 @@ const Markdown = ({
           aria-label="Save note"
           title={`Save (${isMac ? "⌘" : "Ctrl+"}S)`}
           className={cn(
-            "group absolute bottom-8 right-8 flex items-center gap-2.5 rounded-full bg-vault-primary py-3 pl-4 pr-3 text-on-primary-fixed shadow-2xl shadow-vault-primary/30 transition-all duration-200",
+            "group absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 flex items-center gap-2.5 rounded-full bg-vault-primary py-3 pl-4 pr-3 text-on-primary-fixed shadow-2xl shadow-vault-primary/30 transition-all duration-200 md:bottom-8 md:right-8",
             "hover:scale-[1.03] hover:shadow-vault-primary/40 active:scale-95",
             "disabled:cursor-not-allowed disabled:opacity-70",
           )}
@@ -781,7 +785,7 @@ const Markdown = ({
           <span className="text-sm font-semibold tracking-tight">
             {saveStatus === "saving" ? "Saving" : "Save"}
           </span>
-          <kbd className="rounded-md bg-on-primary-fixed/15 px-1.5 py-0.5 font-sans text-[10px] font-semibold tracking-wide">
+          <kbd className="hidden rounded-md bg-on-primary-fixed/15 px-1.5 py-0.5 font-sans text-[10px] font-semibold tracking-wide md:inline-block">
             {isMac ? "⌘S" : "Ctrl+S"}
           </kbd>
         </button>

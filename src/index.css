@@ -203,3 +203,31 @@
 .milkdown-host .milkdown a {
   color: var(--v-primary);
 }
+
+/* --- Responsive / touch affordances for the Milkdown editor surface --- */
+
+/* Crepe renders tables into .milkdown-table-block, which has no overflow of
+   its own — narrow viewports clipped columns instead of scrolling to them. */
+.milkdown-host .milkdown .milkdown-table-block {
+  overflow-x: auto;
+}
+
+/* Code-block and image controls are opacity:0 until :hover, which never fires
+   on touch — the language picker and copy button were unreachable on phones. */
+@media (hover: none) {
+  .milkdown-host .milkdown .milkdown-code-block .tools-button-group > button,
+  .milkdown-host .milkdown .milkdown-code-block .language-button,
+  .milkdown-host .milkdown .milkdown-image-block .image-resize-handle,
+  .milkdown-host .milkdown .milkdown-image-block .operation-item {
+    opacity: 1;
+  }
+}
+
+/* The block drag/plus handle needs ~80px of left gutter; without it floating-ui
+   flips it on top of the text. Give it room from md up, where it's usable. */
+@media (min-width: 768px) {
+  .milkdown-host .milkdown .editor {
+    padding-left: 80px;
+    margin-left: -80px;
+  }
+}

@@ -33,12 +33,12 @@ const ProfileDropdown = ({ onLogout, onChangePassword, onAbout, onAISettings, on
       <button
         onClick={() => setOpen((v) => !v)}
         title="Account"
-        className="flex items-center gap-1.5 rounded-lg p-2 text-outline transition-colors hover:bg-surface-container-high hover:text-on-surface active:scale-95"
+        className="flex h-11 w-11 shrink-0 items-center justify-center gap-1.5 rounded-lg text-outline transition-colors hover:bg-surface-container-high hover:text-on-surface active:scale-95 md:h-auto md:w-auto md:p-2"
       >
         <Icon name="account_circle" />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container shadow-xl">
+        <div className="absolute right-0 top-full z-50 mt-2 w-[min(14rem,calc(100vw_-_1.5rem))] overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container shadow-xl">
           {isLocalOnly ? (
             <div className="border-b border-outline-variant/20 px-4 py-3">
               <p className="text-xs font-medium text-on-surface-variant">Local only</p>
@@ -320,7 +320,7 @@ const CloudBadge = ({ state, latest, onClick }) => {
       onClick={onClick}
       title={entry.tooltip}
       className={cn(
-        "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all hover:scale-[1.02] active:scale-95",
+        "flex min-h-[44px] min-w-0 shrink items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-all hover:scale-[1.02] active:scale-95 sm:px-3 md:min-h-0",
         toneClass,
       )}
     >
@@ -328,12 +328,12 @@ const CloudBadge = ({ state, latest, onClick }) => {
         name={entry.icon}
         className={cn("text-sm", state === "loading" && "animate-spin")}
       />
-      <span>{entry.label}</span>
+      <span className="hidden truncate lg:inline">{entry.label}</span>
     </button>
   );
 };
 
-const TopNav = ({ isUnlocked, onLock, notesCount = 0, cloudState = "loading", cloudLatest = null, onOpenBackup, isLocalOnly = false, onLogout, onSignIn }) => {
+const TopNav = ({ isUnlocked, onLock, notesCount = 0, cloudState = "loading", cloudLatest = null, onOpenBackup, isLocalOnly = false, onLogout, onSignIn, onToggleNotes, notesOpen = false }) => {
   const { theme, toggleTheme } = useTheme();
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -341,9 +341,17 @@ const TopNav = ({ isUnlocked, onLock, notesCount = 0, cloudState = "loading", cl
 
   return (
     <>
-      <header className="sticky top-0 z-50 flex h-16 w-full items-center justify-between bg-surface px-6">
-        <div className="flex items-center gap-8">
-          <span className="text-xl font-semibold tracking-tighter text-on-surface">
+      <header className="sticky top-0 z-50 flex h-[calc(4rem_+_env(safe-area-inset-top))] w-full items-center justify-between gap-2 bg-surface px-3 pt-[env(safe-area-inset-top)] sm:px-6">
+        <div className="flex min-w-0 items-center gap-3 md:gap-8">
+          <button
+            onClick={onToggleNotes}
+            aria-label={notesOpen ? "Close notes" : "Open notes"}
+            aria-expanded={notesOpen}
+            className="-ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-outline transition-colors hover:bg-surface-container-high hover:text-on-surface active:scale-95 md:hidden"
+          >
+            <Icon name={notesOpen ? "close" : "menu"} />
+          </button>
+          <span className="truncate text-xl font-semibold tracking-tighter text-on-surface">
             Hushwrite
           </span>
           <nav className="hidden items-center gap-6 font-semibold tracking-tight md:flex">
@@ -358,7 +366,7 @@ const TopNav = ({ isUnlocked, onLock, notesCount = 0, cloudState = "loading", cl
             </a>
           </nav>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-4">
           <CloudBadge
             state={isLocalOnly ? "no-account" : cloudState}
             latest={cloudLatest}
@@ -368,18 +376,20 @@ const TopNav = ({ isUnlocked, onLock, notesCount = 0, cloudState = "loading", cl
             onClick={onLock}
             disabled={!isUnlocked}
             className={cn(
-              "flex items-center gap-2 rounded-lg bg-surface-container-high px-3 py-1.5 text-sm font-medium text-vault-primary transition-all hover:bg-surface-container-highest active:scale-95",
+"flex min-h-[44px] shrink-0 items-center gap-2 rounded-lg bg-surface-container-high px-3 py-1.5 text-sm font-medium text-vault-primary transition-all hover:bg-surface-container-highest active:scale-95 md:min-h-0",
               !isUnlocked && "cursor-not-allowed opacity-50",
             )}
           >
             <Icon name={isUnlocked ? "lock_open" : "lock"} className="text-sm" />
-            <span>{isUnlocked ? "Lock Session" : "Locked"}</span>
+            <span className="hidden sm:inline">
+              {isUnlocked ? "Lock Session" : "Locked"}
+            </span>
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-0 sm:gap-2">
             <button
               onClick={toggleTheme}
               title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              className="p-2 text-outline transition-colors hover:text-on-surface active:scale-95"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-outline transition-colors hover:text-on-surface active:scale-95 md:h-auto md:w-auto md:p-2"
             >
               <Icon name={theme === "dark" ? "light_mode" : "dark_mode"} />
             </button>

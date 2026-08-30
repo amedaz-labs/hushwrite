@@ -276,9 +276,9 @@ const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) =
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="left-0 top-0 flex h-screen max-h-screen w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-surface p-0 sm:rounded-none [&>button.absolute]:hidden">
+      <DialogContent className="left-0 top-0 flex h-[100dvh] max-h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-surface p-0 sm:p-0 sm:rounded-none [&>button.absolute]:hidden">
         {/* Header bar */}
-        <div className="flex h-16 shrink-0 items-center px-6">
+        <div className="flex h-[calc(4rem_+_env(safe-area-inset-top))] shrink-0 items-center px-3 pt-[env(safe-area-inset-top)] sm:px-6">
           <button
             onClick={() => onOpenChange(false)}
             className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-on-surface-variant transition-colors hover:bg-surface-container-high"
@@ -384,7 +384,7 @@ const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) =
                   <button
                     onClick={refresh}
                     title="Refresh list"
-                    className="flex items-center gap-1 text-xs text-outline hover:text-on-surface"
+                    className="flex min-h-[44px] items-center gap-1 text-xs text-outline hover:text-on-surface md:min-h-0"
                   >
                     <Icon
                       name="refresh"
@@ -395,7 +395,7 @@ const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) =
                 </header>
 
                 {error && (
-                  <div className="rounded-xl bg-error/10 px-4 py-3 text-sm text-error">
+                  <div className="break-words rounded-xl bg-error/10 px-4 py-3 text-sm text-error">
                     {error}
                   </div>
                 )}
@@ -582,7 +582,7 @@ const SnapshotRow = ({ snapshot, isLast, busy, onRestore, onDelete, onTogglePin,
   return (
     <li
       className={cn(
-        "group flex items-center gap-4 rounded-2xl border border-outline-variant/20 bg-surface-container/60 px-4 py-3 transition-all hover:border-outline-variant/50 hover:bg-surface-container",
+        "group flex flex-col items-start gap-3 rounded-2xl border border-outline-variant/20 bg-surface-container/60 px-4 py-3 transition-all hover:border-outline-variant/50 hover:bg-surface-container sm:flex-row sm:items-center sm:gap-4",
         isLast && "border-vault-primary/40 bg-primary-container/10 ring-1 ring-vault-primary/20",
       )}
     >
@@ -613,7 +613,7 @@ const SnapshotRow = ({ snapshot, isLast, busy, onRestore, onDelete, onTogglePin,
                   setEditing(false);
                 }
               }}
-              className="rounded-md border border-vault-primary/40 bg-surface px-2 py-0.5 text-sm font-semibold text-on-surface focus:outline-none"
+              className="w-full min-w-0 rounded-md border border-vault-primary/40 bg-surface px-2 py-0.5 text-base font-semibold text-on-surface focus:outline-none sm:text-sm"
             />
           ) : (
             <button
@@ -650,7 +650,7 @@ const SnapshotRow = ({ snapshot, isLast, busy, onRestore, onDelete, onTogglePin,
         </p>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
         <button
           onClick={onRestore}
           disabled={busy}
@@ -665,7 +665,7 @@ const SnapshotRow = ({ snapshot, isLast, busy, onRestore, onDelete, onTogglePin,
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setMenuOpen((v) => !v)}
-            className="rounded-lg p-1.5 text-outline transition-colors hover:bg-surface-container-high hover:text-on-surface"
+            className="flex h-11 w-11 items-center justify-center rounded-lg p-1.5 text-outline transition-colors hover:bg-surface-container-high hover:text-on-surface md:h-auto md:w-auto"
             title="More actions"
           >
             <Icon name="more_vert" className="text-base" />
@@ -848,7 +848,7 @@ const InlineAuth = ({ onSignedIn }) => {
   };
 
   const inputClass =
-    "w-full rounded-lg border border-outline-variant/30 bg-surface px-3 py-2.5 text-sm text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none";
+    "w-full rounded-lg border border-outline-variant/30 bg-surface px-3 py-2.5 text-base text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none sm:text-sm";
 
   return (
     <form

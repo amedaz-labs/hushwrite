@@ -88,7 +88,7 @@ const HwriteExportDialog = ({ onConfirm, onCancel }) => {
                 type="button"
                 onClick={() => setShowPass((v) => !v)}
                 aria-label={showPass ? "Hide passphrase" : "Show passphrase"}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
+                className="absolute right-1 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground"
               >
                 {showPass ? (
                   <EyeOff className="h-4 w-4" />

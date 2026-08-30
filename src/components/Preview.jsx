@@ -117,7 +117,7 @@ const Preview = ({
           onBlur={() => setFocused(false)}
           spellCheck={false}
           placeholder="Start writing to see the markdown source"
-          className="scrollbar-thin relative h-full w-full resize-none overflow-y-auto bg-transparent px-6 py-5 font-mono text-[13px] leading-[22.75px] text-foreground placeholder:text-muted-foreground focus:outline-none"
+          className="scrollbar-thin relative h-full w-full resize-none overflow-y-auto bg-transparent px-6 py-5 font-mono text-base leading-[22.75px] text-foreground md:text-[13px] placeholder:text-muted-foreground focus:outline-none"
         />
       </div>
     </div>

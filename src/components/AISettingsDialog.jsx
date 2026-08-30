@@ -216,12 +216,12 @@ const AISettingsDialog = ({ open, onOpenChange }) => {
 
       {pendingConfirm && (
         <div
-          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[110] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
           onClick={closeConfirm}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-2xl border border-outline-variant/20 bg-surface-container p-7 shadow-2xl"
+            className="max-h-[85dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-outline-variant/20 bg-surface-container p-5 shadow-2xl sm:p-7"
           >
             {pendingConfirm === "disable" ? (
               <>
@@ -265,7 +265,7 @@ const AISettingsDialog = ({ open, onOpenChange }) => {
                     The AI button hides from the editor toolbar
                   </li>
                 </ul>
-                <div className="mt-6 flex justify-end gap-2">
+                <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
                   <button
                     onClick={closeConfirm}
                     className="rounded-lg bg-surface-container-high px-5 py-2.5 text-sm font-semibold text-on-surface transition-all hover:bg-surface-container-highest active:scale-95"
@@ -317,7 +317,7 @@ const AISettingsDialog = ({ open, onOpenChange }) => {
                     Next enable downloads the full ~1.8 GB again
                   </li>
                 </ul>
-                <div className="mt-6 flex justify-end gap-2">
+                <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
                   <button
                     onClick={closeConfirm}
                     className="rounded-lg bg-surface-container-high px-5 py-2.5 text-sm font-semibold text-on-surface transition-all hover:bg-surface-container-highest active:scale-95"

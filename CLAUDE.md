@@ -10,22 +10,36 @@ Note: this directory sits inside the larger `tbites` monorepo, but hushwrite is 
 
 ## Commands
 
+**All Node/npm commands run inside Docker — never on the host.** See
+[docker-compose.yml](docker-compose.yml). Bare `npm`/`npx`/`node` is blocked by a
+`permissions.deny` rule in `~/.claude/settings.json`; containerize the command rather
+than asking for an exception.
+
+First run (populates the `node_modules` named volumes):
+```bash
+docker compose run --rm app npm install
+docker compose run --rm app sh -c "cd api && npm install"
+```
+
 ### Frontend (PWA)
 ```bash
-npm run dev       # Vite dev server (PWA enabled in dev via VitePWA devOptions)
-npm run build     # Production build to dist/
-npm run preview   # Preview built app
-npm run lint      # ESLint (flat config in eslint.config.js)
+docker compose up dev                        # Vite dev server → http://localhost:5173
+docker compose run --rm app npm run build    # Production build to dist/
+docker compose run --rm app npm run preview  # Preview built app
+docker compose run --rm app npm run lint     # ESLint (flat config in eslint.config.js)
 ```
 
 ### Backend API ([api/](api/))
 ```bash
-cd api
-npm run dev            # Wrangler dev server (http://localhost:8787)
-npm run deploy         # Deploy to Cloudflare Workers
-npm run db:migrate     # Run D1 schema migration (local)
-npm run db:migrate:prod # Run D1 schema migration (production)
+docker compose up api                                     # Wrangler → http://localhost:8787
+docker compose run --rm api npm run deploy                # Deploy to Cloudflare Workers
+docker compose run --rm api npm run db:migrate            # D1 schema migration (local)
+docker compose run --rm api npm run db:migrate:prod       # D1 schema migration (production)
 ```
+
+`node_modules` lives in named volumes, not the host bind mount — native binaries
+(rolldown, esbuild) are platform-specific, so a macOS-installed tree breaks in Linux.
+After changing `package.json`, re-run the `npm install` line above.
 
 There is no test suite.
 

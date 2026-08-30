@@ -72,8 +72,8 @@ const ExportNote = ({ note }) => {
         disabled={!note.content?.trim()}
         title="Export as a plain Markdown (.md) file. Warning: this file is NOT encrypted — it leaves HushWrite's encryption protection."
       >
-        <FileText className="mr-1.5 h-4 w-4" />
-        .MD
+        <FileText className="h-4 w-4 sm:mr-1.5" />
+        <span className="hidden sm:inline">.MD</span>
       </Button>
       <Button
         variant="ghost"
@@ -82,8 +82,8 @@ const ExportNote = ({ note }) => {
         disabled={!note.content?.trim() || exporting}
         title="Export as a PDF document. Warning: this file is NOT encrypted — it leaves HushWrite's encryption protection."
       >
-        <FileDown className="mr-1.5 h-4 w-4" />
-        PDF
+        <FileDown className="h-4 w-4 sm:mr-1.5" />
+        <span className="hidden sm:inline">PDF</span>
       </Button>
       <Button
         variant="ghost"
@@ -92,8 +92,8 @@ const ExportNote = ({ note }) => {
         disabled={!note.content?.trim()}
         title="Export as a .hwrite file — HushWrite's portable format. Stays encrypted with the passphrase you choose, so it remains protected outside the app."
       >
-        <FileLock2 className="mr-1.5 h-4 w-4" />
-        .hwrite
+        <FileLock2 className="h-4 w-4 sm:mr-1.5" />
+        <span className="hidden sm:inline">.hwrite</span>
       </Button>
       {hwriteOpen && (
         <HwriteExportDialog

@@ -96,7 +96,7 @@ const DeleteModal = ({
                 type="button"
                 onClick={handleForceDelete}
                 disabled={verifying}
-                className="text-xs font-medium text-outline underline-offset-2 hover:text-destructive hover:underline disabled:opacity-50"
+                className="-mx-1 inline-flex min-h-[44px] items-center px-1 text-xs font-medium text-outline underline-offset-2 hover:text-destructive hover:underline disabled:opacity-50 md:min-h-0"
                 title="This note is older than 30 days — can be deleted without a passphrase"
               >
                 Delete without passphrase

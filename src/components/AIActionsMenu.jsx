@@ -181,7 +181,7 @@ const AIActionsMenu = ({
           disabled={disabled}
           title={disabled ? "Accept or discard pending AI change first" : "AI assist"}
           className={cn(
-            "flex items-center gap-1.5 rounded p-1.5 transition-all hover:bg-surface-container-high disabled:cursor-not-allowed disabled:opacity-40",
+            "flex h-11 w-11 items-center justify-center gap-1.5 rounded p-1.5 transition-all hover:bg-surface-container-high disabled:cursor-not-allowed disabled:opacity-40 md:h-auto md:w-auto",
             isReady
               ? "text-vault-primary"
               : "text-outline hover:text-on-surface",
@@ -195,7 +195,7 @@ const AIActionsMenu = ({
       )}
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container shadow-xl">
+        <div className="absolute left-0 top-full z-50 mt-2 w-[min(14rem,calc(100vw_-_1.5rem))] overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container shadow-xl md:left-auto md:right-0">
           <div className="border-b border-outline-variant/20 px-4 py-2.5">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-vault-primary">
               On-device AI

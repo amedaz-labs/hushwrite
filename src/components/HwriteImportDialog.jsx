@@ -151,7 +151,7 @@ const HwriteImportDialog = ({
           <div
             role="radiogroup"
             aria-label="Import destination"
-            className="grid grid-cols-2 gap-2"
+            className="grid grid-cols-1 gap-2 sm:grid-cols-2"
           >
             {[
               {
@@ -214,7 +214,7 @@ const HwriteImportDialog = ({
                 }}
                 disabled={busy}
                 placeholder="Passphrase used when this .hwrite was exported"
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                className="rounded-md border border-border bg-background px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-primary sm:text-sm"
               />
               <p className="text-[11px] text-muted-foreground">
                 Needed once to decrypt the file before re-encrypting it with your vault key.

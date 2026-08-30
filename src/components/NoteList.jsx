@@ -40,6 +40,7 @@ const formatTimestamp = (ts) => {
 };
 
 const NoteList = ({
+  open = false,
   notes,
   currentId,
   currentTitle,
@@ -253,7 +254,8 @@ const NoteList = ({
       }}
       onDrop={onDrop}
       className={cn(
-        "relative flex w-72 flex-col border-r border-outline-variant/10 bg-surface-container-lowest",
+        "invisible absolute inset-y-0 left-0 z-40 flex w-72 max-w-[85%] shrink-0 -translate-x-full flex-col border-r border-outline-variant/10 bg-surface-container-lowest transition-[transform,visibility] duration-200 ease-out md:visible md:static md:max-w-none md:translate-x-0",
+        open && "visible translate-x-0",
         dragActive && "ring-2 ring-vault-primary/60 ring-inset",
       )}
     >
@@ -289,7 +291,7 @@ const NoteList = ({
                 key={s.id}
                 onClick={() => onSectionChange?.(s.id)}
                 className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-all",
+                  "flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-all md:min-h-0",
                   isActive
                     ? "bg-surface-container-high text-vault-primary"
                     : "text-outline hover:text-on-surface",
@@ -305,7 +307,7 @@ const NoteList = ({
         {inVault && vault.isVaultUnlocked && (
           <button
             onClick={() => vault.lockVault()}
-            className="mt-3 flex w-full items-center justify-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium uppercase tracking-wider text-outline transition-colors hover:text-on-surface"
+            className="mt-3 flex min-h-[44px] w-full items-center justify-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium uppercase tracking-wider text-outline transition-colors hover:text-on-surface md:min-h-0"
             title="Lock vault"
           >
             <Icon name="lock" className="text-sm" />
@@ -317,7 +319,7 @@ const NoteList = ({
           <>
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-surface-container py-2 text-xs font-medium text-outline transition-all hover:bg-surface-container-high hover:text-on-surface"
+              className="mt-3 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-surface-container py-2 text-xs font-medium text-outline transition-all hover:bg-surface-container-high hover:text-on-surface md:min-h-0"
             >
               <Icon name="file_upload" className="text-sm" />
               Import .hwrite
@@ -356,7 +358,7 @@ const NoteList = ({
                       setPendingVaultImport(null);
                       toast("Import cancelled");
                     }}
-                    className="mt-1 text-[10px] font-medium uppercase tracking-wider text-outline transition-colors hover:text-error"
+                    className="mt-1 inline-flex min-h-[44px] items-center text-[10px] font-medium uppercase tracking-wider text-outline transition-colors hover:text-error md:min-h-0"
                   >
                     Cancel import
                   </button>

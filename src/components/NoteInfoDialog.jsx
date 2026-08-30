@@ -99,8 +99,10 @@ const NoteInfoDialog = ({
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Icon name="info" className="text-base" fill />
-            {title?.trim() || "Note details"}
+            <Icon name="info" className="shrink-0 text-base" fill />
+            <span className="min-w-0 truncate">
+              {title?.trim() || "Note details"}
+            </span>
           </DialogTitle>
           <DialogDescription>
             Stats and security options for this note.
@@ -132,14 +134,14 @@ const NoteInfoDialog = ({
                 value={newPassphrase}
                 onChange={(e) => setNewPassphrase(e.target.value)}
                 placeholder="New passphrase"
-                className="w-full rounded-md border border-outline-variant/30 bg-surface-container px-3 py-2 text-sm text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none"
+                className="w-full rounded-md border border-outline-variant/30 bg-surface-container px-3 py-2 text-base text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none sm:text-sm"
               />
               <input
                 type="password"
                 value={confirmPassphrase}
                 onChange={(e) => setConfirmPassphrase(e.target.value)}
                 placeholder="Confirm new passphrase"
-                className="w-full rounded-md border border-outline-variant/30 bg-surface-container px-3 py-2 text-sm text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none"
+                className="w-full rounded-md border border-outline-variant/30 bg-surface-container px-3 py-2 text-base text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none sm:text-sm"
               />
               <button
                 type="submit"

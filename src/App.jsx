@@ -21,8 +21,19 @@ const App = () => {
   const [isComposingNew, setIsComposingNew] = useState(false);
   const [titleCache, setTitleCache] = useState({});
 
+  const [notesOpen, setNotesOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
   const [cloud, setCloud] = useState({ state: "loading", latest: null });
+
+  // Escape closes the mobile drawer (the overlay only handles clicks).
+  useEffect(() => {
+    if (!notesOpen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setNotesOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [notesOpen]);
 
   const lockRef = useRef(() => {});
   const isUnlockedRef = useRef(() => false);
@@ -147,7 +158,7 @@ const App = () => {
 
   return (
     <VaultProvider>
-    <div className="flex h-screen flex-col overflow-hidden bg-surface font-body text-on-surface selection:bg-vault-primary/30">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-surface font-body text-on-surface selection:bg-vault-primary/30">
       <TopNav
         isUnlocked={isUnlockedRef.current?.() ?? false}
         onLock={handleLock}
@@ -158,9 +169,19 @@ const App = () => {
         isLocalOnly={!isLoggedIn()}
         onLogout={handleLogout}
         onSignIn={handleOpenBackup}
+        onToggleNotes={() => setNotesOpen((v) => !v)}
+        notesOpen={notesOpen}
       />
-      <main className="flex flex-1 overflow-hidden">
+      <main className="relative flex flex-1 overflow-hidden">
+        {notesOpen && (
+          <div
+            className="absolute inset-0 z-30 bg-black/40 md:hidden"
+            onClick={() => setNotesOpen(false)}
+            aria-hidden="true"
+          />
+        )}
         <NoteList
+          open={notesOpen}
           notes={notes}
           currentId={currentId}
           currentTitle={title}
@@ -168,10 +189,19 @@ const App = () => {
           onSelectNote={(n) => {
             setIsComposingNew(false);
             setSelectedNote(n);
+            setNotesOpen(false);
           }}
-          onImportNote={handleImportNote}
+          onImportNote={(payload) => {
+            setNotesOpen(false);
+            handleImportNote(payload);
+          }}
           onNotesChanged={(next) => setNotes(next)}
-          onNewNote={activeSection === "vault" ? handleNewNoteInVault : handleNewNote}
+          onNewNote={() => {
+            setNotesOpen(false);
+            return activeSection === "vault"
+              ? handleNewNoteInVault()
+              : handleNewNote();
+          }}
           activeSection={activeSection}
           onSectionChange={(id) => {
             setActiveSection(id);
