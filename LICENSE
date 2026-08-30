@@ -1,0 +1,81 @@
+Hushwrite Source-Available License
+Copyright (c) 2026 Amedaz. All rights reserved.
+
+This software is SOURCE-AVAILABLE, NOT OPEN SOURCE. The source is
+published so that it can be read, audited, and verified -- particularly
+its cryptography -- and for no other purpose. No right to use, run,
+modify, or redistribute the software is granted.
+
+1. GRANT
+
+   Subject to the terms below, you are granted a non-exclusive,
+   non-transferable, revocable, royalty-free right to:
+
+   (a) view, read, and analyse the source code in this repository;
+   (b) store a local copy solely to the extent technically necessary to
+       do so (for example, a git clone);
+   (c) build and run the software locally, without modification, solely
+       to evaluate or verify the behaviour of the code you are reading.
+
+2. RESTRICTIONS
+
+   Except as expressly permitted in Section 1 or required by law, you
+   may NOT:
+
+   (a) use the software, in whole or in part, for any personal,
+       internal, commercial, or production purpose;
+   (b) modify the software or create derivative works from it;
+   (c) copy, publish, distribute, sublicense, sell, host, or otherwise
+       make the software available to any third party;
+   (d) incorporate any portion of the source code into another work;
+   (e) use the software to train, fine-tune, or evaluate a machine
+       learning model, or to generate a dataset;
+   (f) remove or obscure this notice or any copyright notice.
+
+3. PERMITTED QUOTATION
+
+   Nothing in Section 2 prevents you from quoting short excerpts of the
+   source code, with attribution, for the purpose of commentary,
+   criticism, teaching, academic work, or reporting a security issue.
+
+4. SECURITY RESEARCH
+
+   Reporting a vulnerability found by reading or locally running this
+   software is expressly welcome and does not breach this license.
+   Please report privately to the contact below rather than publicly.
+
+5. THIRD-PARTY COMPONENTS
+
+   This license covers only the source code authored in this repository.
+   Third-party dependencies (including those resolved into node_modules)
+   remain governed by their own respective licenses, and nothing here
+   restricts or extends those terms.
+
+6. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND
+   NONINFRINGEMENT.
+
+   This applies with particular force to the cryptography: the software
+   has not been independently audited, and no representation is made
+   that it is fit to protect any information of any value.
+
+7. LIMITATION OF LIABILITY
+
+   IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM,
+   DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT,
+   OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE
+   SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+8. TERMINATION
+
+   This license terminates automatically if you breach any of its terms.
+   On termination you must delete all copies in your possession.
+
+9. OTHER LICENSING
+
+   Rights beyond those granted above -- including any commercial or
+   redistribution rights -- are available only by separate written
+   agreement. Contact: admin@amedaz.com
