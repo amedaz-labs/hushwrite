@@ -1,0 +1,1144 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hushwrite — UI/UX redesign proposal</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOKENS — lifted from src/index.css so this is a plausible drop-in, not a
+   fantasy. Only additions: a spacing/radius/elevation scale and a semantic
+   "amber" for the dirty state (the app currently has no warn tone that isn't
+   an error).
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root, html.dark {
+  --surface:#131314;
+  --sc-lowest:#0e0e0f;
+  --sc-low:#1c1b1c;
+  --sc:#201f20;
+  --sc-high:#2a2a2b;
+  --sc-highest:#353436;
+  --on-surface:#e5e2e3;
+  --on-surface-var:#c7c4d7;
+  --outline:#908fa0;
+  --outline-var:#464554;
+  --primary:#c0c1ff;
+  --primary-container:#8083ff;
+  --on-primary:#07006c;
+  --tertiary:#ffb783;
+  --danger:#ffb4ab;
+  --amber:#ffcf8b;
+  --ok:#8ee6b0;
+  --shadow-1:0 1px 2px rgba(0,0,0,.4), 0 1px 3px 1px rgba(0,0,0,.2);
+  --shadow-2:0 2px 6px 2px rgba(0,0,0,.25), 0 1px 2px rgba(0,0,0,.4);
+  --shadow-3:0 8px 28px -4px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.35);
+  --scrim:rgba(0,0,0,.62);
+}
+html.light {
+  --surface:#fdfcfc;
+  --sc-lowest:#ffffff;
+  --sc-low:#f6f5f7;
+  --sc:#eeedef;
+  --sc-high:#e7e5e9;
+  --sc-highest:#dddce1;
+  --on-surface:#1a1a1d;
+  --on-surface-var:#46464f;
+  --outline:#6b6b74;
+  --outline-var:#d5d4dc;
+  --primary:#494bd6;
+  --primary-container:#c0c1ff;
+  --on-primary:#ffffff;
+  --tertiary:#8a4a00;
+  --danger:#b3261e;
+  --amber:#8a5a00;
+  --ok:#116b43;
+  --shadow-1:0 1px 2px rgba(16,16,24,.08), 0 1px 3px rgba(16,16,24,.06);
+  --shadow-2:0 2px 8px rgba(16,16,24,.10), 0 1px 2px rgba(16,16,24,.06);
+  --shadow-3:0 12px 32px -8px rgba(16,16,24,.22), 0 2px 8px rgba(16,16,24,.08);
+  --scrim:rgba(20,20,28,.42);
+}
+
+/* scale */
+:root{
+  --r-sm:6px; --r:8px; --r-lg:12px; --r-xl:16px; --r-pill:999px;
+  --rail:268px;
+  --measure:calc(68ch);
+  --ease:cubic-bezier(.2,.7,.3,1);
+}
+
+*,*::before,*::after{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0;
+  background:var(--surface);
+  color:var(--on-surface);
+  font:400 14px/1.5 "Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  letter-spacing:-.006em;
+  transition:background .25s var(--ease), color .25s var(--ease);
+}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;}
+input{font:inherit;color:inherit;}
+::selection{background:color-mix(in srgb, var(--primary) 30%, transparent);}
+::-webkit-scrollbar{width:8px;height:8px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--sc-high);border-radius:99px;border:2px solid transparent;background-clip:content-box;}
+::-webkit-scrollbar-thumb:hover{background:var(--sc-highest);background-clip:content-box;}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:var(--r-sm);}
+
+.icon{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+.icon.sm{width:15px;height:15px;}
+.icon.lg{width:22px;height:22px;}
+.icon.xl{width:34px;height:34px;stroke-width:1.4;}
+
+/* ═══ APP SHELL ═══════════════════════════════════════════════════════════ */
+.app{display:flex;flex-direction:column;height:100vh;overflow:hidden;}
+
+/* ── Top bar: one row, one lock indicator, everything else demoted ───────── */
+.topbar{
+  display:flex;align-items:center;gap:12px;
+  height:52px;flex:none;
+  padding:0 12px 0 14px;
+  border-bottom:1px solid color-mix(in srgb, var(--outline-var) 55%, transparent);
+  background:var(--surface);
+  position:relative;z-index:30;
+}
+.brand{display:flex;align-items:center;gap:9px;min-width:0;}
+.brand .mark{
+  width:24px;height:24px;border-radius:var(--r-pill);flex:none;
+  background:linear-gradient(140deg,var(--primary-container),var(--primary));
+  display:grid;place-items:center;color:var(--on-primary);
+}
+.brand .mark svg{width:14px;height:14px;stroke-width:2.1;}
+.brand b{font-size:14.5px;font-weight:650;letter-spacing:-.02em;}
+.topbar .spacer{flex:1;}
+
+/* session pill — THE single canonical lock indicator */
+.session{
+  display:flex;align-items:center;gap:7px;height:30px;padding:0 11px 0 9px;
+  border-radius:var(--r-pill);
+  background:color-mix(in srgb, var(--primary) 12%, transparent);
+  color:var(--primary);
+  font-size:12.5px;font-weight:560;letter-spacing:-.01em;
+  transition:background .18s var(--ease);
+}
+.session:hover{background:color-mix(in srgb, var(--primary) 20%, transparent);}
+.session .dot{width:6px;height:6px;border-radius:99px;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 20%,transparent);}
+.session .t{opacity:.62;font-variant-numeric:tabular-nums;font-weight:500;}
+.session.locked{background:var(--sc);color:var(--on-surface-var);}
+.session.locked .dot{background:var(--outline);box-shadow:none;}
+
+.iconbtn{
+  width:32px;height:32px;border-radius:var(--r);
+  display:grid;place-items:center;color:var(--outline);
+  transition:background .15s var(--ease), color .15s var(--ease);
+}
+.iconbtn:hover{background:var(--sc);color:var(--on-surface);}
+.iconbtn.active{background:var(--sc-high);color:var(--on-surface);}
+
+.avatar{
+  width:28px;height:28px;border-radius:99px;flex:none;
+  background:var(--sc-high);color:var(--on-surface-var);
+  display:grid;place-items:center;font-size:11px;font-weight:650;letter-spacing:.02em;
+  border:1px solid color-mix(in srgb,var(--outline-var) 60%,transparent);
+}
+
+.divider-v{width:1px;height:20px;background:var(--outline-var);opacity:.55;margin:0 2px;}
+
+/* cloud chip — icon-only until it needs you */
+.cloud{
+  display:flex;align-items:center;gap:6px;height:30px;padding:0 10px;
+  border-radius:var(--r-pill);color:var(--outline);font-size:12.5px;font-weight:520;
+  transition:background .15s var(--ease),color .15s var(--ease);
+}
+.cloud:hover{background:var(--sc);color:var(--on-surface);}
+.cloud.attn{color:var(--amber);background:color-mix(in srgb,var(--amber) 13%,transparent);}
+
+.body{display:flex;flex:1;min-height:0;}
+
+/* ═══ SIDEBAR ═════════════════════════════════════════════════════════════ */
+.sidebar{
+  width:var(--rail);flex:none;
+  display:flex;flex-direction:column;min-height:0;
+  background:var(--sc-lowest);
+  border-right:1px solid color-mix(in srgb,var(--outline-var) 55%,transparent);
+}
+html.light .sidebar{background:var(--sc-low);}
+
+.side-top{padding:10px 10px 6px;display:flex;flex-direction:column;gap:8px;}
+
+/* search — did not exist before; the single highest-value addition */
+.search{
+  display:flex;align-items:center;gap:8px;height:32px;padding:0 9px;
+  border-radius:var(--r);background:var(--sc);
+  color:var(--outline);
+  border:1px solid transparent;
+  transition:border-color .15s var(--ease),background .15s var(--ease);
+}
+.search:focus-within{border-color:color-mix(in srgb,var(--primary) 55%,transparent);background:var(--sc-low);}
+.search input{border:0;background:none;outline:none;flex:1;min-width:0;font-size:13px;color:var(--on-surface);}
+.search input::placeholder{color:var(--outline);}
+.kbd{
+  font:600 10.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  padding:3px 5px;border-radius:5px;
+  background:var(--sc-high);color:var(--outline);
+  border:1px solid color-mix(in srgb,var(--outline-var) 50%,transparent);
+  letter-spacing:.02em;flex:none;
+}
+
+/* one primary action, split — replaces the two oversized cards */
+.newrow{display:flex;gap:1px;}
+.newrow .main{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:32px;
+  border-radius:var(--r) 0 0 var(--r);
+  background:var(--primary);color:var(--on-primary);
+  font-size:13px;font-weight:600;letter-spacing:-.01em;
+  transition:filter .15s var(--ease),transform .08s var(--ease);
+}
+.newrow .caret{
+  width:28px;display:grid;place-items:center;
+  border-radius:0 var(--r) var(--r) 0;
+  background:var(--primary);color:var(--on-primary);
+  border-left:1px solid color-mix(in srgb,var(--on-primary) 18%,transparent);
+  transition:filter .15s var(--ease);
+}
+.newrow .main:hover,.newrow .caret:hover{filter:brightness(1.08);}
+.newrow .main:active{transform:scale(.985);}
+
+.side-scroll{flex:1;overflow-y:auto;padding:6px 8px 12px;min-height:0;}
+
+.grouplabel{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 8px 5px;
+  font-size:10.5px;font-weight:650;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--outline);
+}
+.grouplabel .n{font-weight:600;letter-spacing:.02em;opacity:.75;}
+
+/* ── Unified row anatomy: [twisty|icon] title [meta] [⋯] ─────────────────── */
+.row{
+  display:flex;align-items:center;gap:8px;
+  height:32px;padding:0 6px 0 4px;border-radius:var(--r);
+  color:var(--on-surface-var);
+  position:relative;width:100%;text-align:left;
+  transition:background .12s var(--ease),color .12s var(--ease);
+}
+.row:hover{background:var(--sc);color:var(--on-surface);}
+.row.selected{background:var(--sc-high);color:var(--on-surface);}
+.row.selected::before{
+  content:"";position:absolute;left:-8px;top:6px;bottom:6px;width:3px;
+  border-radius:0 3px 3px 0;background:var(--primary);
+}
+.row .twisty{
+  width:16px;height:16px;flex:none;display:grid;place-items:center;color:var(--outline);
+  transition:transform .16s var(--ease);
+}
+.row.open .twisty{transform:rotate(90deg);}
+.row .lead{width:16px;height:16px;flex:none;display:grid;place-items:center;color:var(--outline);}
+.row.selected .lead,.row:hover .lead{color:var(--on-surface-var);}
+.row .name{
+  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:13.2px;font-weight:500;letter-spacing:-.008em;
+}
+.row.selected .name{font-weight:600;}
+.row .meta{
+  font-size:11px;color:var(--outline);font-variant-numeric:tabular-nums;
+  flex:none;transition:opacity .12s var(--ease);
+}
+.row .more{
+  width:22px;height:22px;border-radius:var(--r-sm);flex:none;
+  display:grid;place-items:center;color:var(--outline);
+  opacity:0;transition:opacity .12s var(--ease),background .12s var(--ease);
+}
+.row:hover .more,.row.selected .more{opacity:1;}
+.row .more:hover{background:var(--sc-highest);color:var(--on-surface);}
+.row:hover .meta{opacity:0;position:absolute;right:30px;} /* meta yields to ⋯ */
+
+/* lock affordance: colour + a single glyph, never doubled */
+.lockdot{
+  width:16px;height:16px;flex:none;display:grid;place-items:center;
+  color:var(--outline);
+}
+.row.unlocked .lockdot{color:var(--ok);}
+.row.locked .name{color:var(--outline);}
+.row.locked:hover .name{color:var(--on-surface-var);}
+
+.children{display:flex;flex-direction:column;gap:1px;margin:1px 0 3px;}
+.children .row{padding-left:26px;}
+.children .row.selected::before{left:-8px;}
+
+.emptyfolder{
+  padding:4px 0 6px 30px;font-size:12px;color:var(--outline);font-style:italic;
+}
+
+.side-foot{
+  flex:none;padding:8px 10px;
+  border-top:1px solid color-mix(in srgb,var(--outline-var) 45%,transparent);
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  font-size:11.5px;color:var(--outline);
+}
+.side-foot .ghost{
+  display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:var(--r-sm);
+  transition:background .15s var(--ease),color .15s var(--ease);
+}
+.side-foot .ghost:hover{background:var(--sc);color:var(--on-surface);}
+
+/* ═══ EDITOR PANE ═════════════════════════════════════════════════════════ */
+.pane{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;position:relative;}
+
+.toolbar{
+  height:46px;flex:none;display:flex;align-items:center;gap:10px;
+  padding:0 14px 0 20px;
+  border-bottom:1px solid color-mix(in srgb,var(--outline-var) 40%,transparent);
+}
+
+/* breadcrumb tells you which lock you're inside — new information */
+.crumbs{display:flex;align-items:center;gap:6px;min-width:0;font-size:12.5px;color:var(--outline);}
+.crumbs .c{display:flex;align-items:center;gap:5px;padding:3px 6px;border-radius:var(--r-sm);transition:background .12s var(--ease),color .12s var(--ease);}
+.crumbs .c:hover{background:var(--sc);color:var(--on-surface-var);}
+.crumbs .sep{opacity:.5;}
+.crumbs .cur{color:var(--on-surface-var);font-weight:520;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+.toolbar .spacer{flex:1;}
+
+/* save status replaces the FAB: quiet when saved, a real button when dirty */
+.savestate{
+  display:flex;align-items:center;gap:7px;height:28px;padding:0 10px;
+  border-radius:var(--r-pill);font-size:12px;font-weight:520;
+  color:var(--outline);transition:all .2s var(--ease);
+}
+.savestate .dot{width:6px;height:6px;border-radius:99px;background:var(--outline);}
+.savestate.saved{color:var(--outline);}
+.savestate.saved .dot{background:var(--ok);}
+.savestate.dirty{
+  background:color-mix(in srgb,var(--amber) 14%,transparent);
+  color:var(--amber);cursor:pointer;
+}
+.savestate.dirty .dot{background:var(--amber);animation:pulse 1.8s infinite;}
+.savestate.saving .dot{background:var(--primary);animation:pulse 1s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+
+.wc{font-size:11.5px;color:var(--outline);font-variant-numeric:tabular-nums;letter-spacing:.01em;padding:0 2px;}
+
+.tsep{width:1px;height:18px;background:var(--outline-var);opacity:.5;}
+
+/* AI gets a real, labelled home instead of hiding in an icon */
+.aibtn{
+  display:flex;align-items:center;gap:6px;height:28px;padding:0 10px 0 8px;
+  border-radius:var(--r-pill);
+  color:var(--primary);font-size:12.5px;font-weight:550;
+  transition:background .15s var(--ease);
+}
+.aibtn:hover{background:color-mix(in srgb,var(--primary) 13%,transparent);}
+
+/* ── Writing surface: one measured column, title welded to the body ──────── */
+.canvas{flex:1;overflow-y:auto;min-height:0;}
+.sheet{max-width:var(--measure);width:100%;margin:0 auto;padding:56px 32px 40vh;}
+
+.doctitle{
+  font-size:31px;line-height:1.2;font-weight:680;letter-spacing:-.028em;
+  color:var(--on-surface);margin:0 0 6px;
+  border:0;background:none;outline:none;width:100%;display:block;
+}
+.doctitle[data-empty="1"]::before{
+  content:attr(data-placeholder);color:var(--outline);opacity:.55;font-weight:600;
+}
+.docmeta{
+  display:flex;align-items:center;gap:10px;
+  font-size:12px;color:var(--outline);
+  padding-bottom:18px;margin-bottom:22px;
+  border-bottom:1px solid color-mix(in srgb,var(--outline-var) 40%,transparent);
+}
+.docmeta .pillmini{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:2px 8px;border-radius:var(--r-pill);
+  background:color-mix(in srgb,var(--ok) 13%,transparent);color:var(--ok);
+  font-size:11px;font-weight:600;letter-spacing:-.005em;
+}
+.docmeta .d{opacity:.45;}
+
+.prose{font-size:16.5px;line-height:1.72;color:var(--on-surface);letter-spacing:-.003em;}
+.prose p{margin:0 0 1.05em;}
+.prose h2{font-size:19px;font-weight:640;letter-spacing:-.018em;margin:1.9em 0 .55em;}
+.prose ul{margin:0 0 1.05em;padding-left:1.15em;}
+.prose li{margin:.3em 0;}
+.prose li::marker{color:var(--outline);}
+.prose code{
+  font:500 .87em/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  background:var(--sc);color:var(--tertiary);
+  padding:.16em .4em;border-radius:5px;
+}
+.prose blockquote{
+  margin:1.2em 0;padding:2px 0 2px 16px;
+  border-left:2px solid color-mix(in srgb,var(--primary) 55%,transparent);
+  color:var(--on-surface-var);
+}
+.prose a{color:var(--primary);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--primary) 35%,transparent);}
+.prose hr{border:0;border-top:1px solid var(--outline-var);opacity:.5;margin:2em 0;}
+.caret-line{border-right:1.5px solid var(--primary);animation:blink 1.1s step-end infinite;}
+@keyframes blink{50%{border-color:transparent;}}
+
+/* ═══ CENTERED STATES (empty / locked) ════════════════════════════════════ */
+.center{flex:1;display:grid;place-items:center;padding:24px;overflow-y:auto;}
+.stack{max-width:400px;width:100%;text-align:center;}
+.stack .glyph{
+  width:56px;height:56px;margin:0 auto 18px;border-radius:var(--r-xl);
+  display:grid;place-items:center;
+  background:var(--sc);color:var(--outline);
+}
+.stack h3{margin:0 0 7px;font-size:17px;font-weight:640;letter-spacing:-.02em;color:var(--on-surface);}
+.stack p{margin:0 0 22px;font-size:13.5px;line-height:1.6;color:var(--outline);}
+
+.quick{display:flex;flex-direction:column;gap:6px;text-align:left;}
+.quick button{
+  display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:var(--r-lg);
+  background:var(--sc-low);border:1px solid transparent;
+  transition:background .15s var(--ease),border-color .15s var(--ease),transform .08s var(--ease);
+}
+.quick button:hover{background:var(--sc);border-color:color-mix(in srgb,var(--outline-var) 70%,transparent);}
+.quick button:active{transform:scale(.99);}
+.quick .qi{width:30px;height:30px;border-radius:var(--r);display:grid;place-items:center;background:var(--sc-high);color:var(--on-surface-var);flex:none;}
+.quick .qt{flex:1;min-width:0;}
+.quick .qt b{display:block;font-size:13px;font-weight:580;color:var(--on-surface);letter-spacing:-.01em;}
+.quick .qt span{display:block;font-size:11.5px;color:var(--outline);margin-top:1px;}
+
+.assure{
+  margin-top:26px;display:flex;align-items:center;justify-content:center;gap:7px;
+  font-size:11.5px;color:var(--outline);
+}
+.assure svg{color:var(--ok);}
+
+/* locked card */
+.lockcard{
+  max-width:390px;width:100%;padding:28px 26px;border-radius:var(--r-xl);
+  background:var(--sc-low);
+  border:1px solid color-mix(in srgb,var(--outline-var) 70%,transparent);
+  box-shadow:var(--shadow-1);text-align:center;
+}
+.lockcard .glyph{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);}
+.lockcard .scope{
+  display:inline-flex;align-items:center;gap:6px;margin-bottom:14px;
+  padding:4px 10px;border-radius:var(--r-pill);background:var(--sc);
+  font-size:11.5px;font-weight:560;color:var(--on-surface-var);
+}
+.field{
+  display:flex;align-items:center;gap:8px;height:40px;padding:0 6px 0 12px;
+  border-radius:var(--r-lg);background:var(--surface);
+  border:1px solid color-mix(in srgb,var(--outline-var) 80%,transparent);
+  transition:border-color .15s var(--ease),box-shadow .15s var(--ease);
+}
+.field:focus-within{
+  border-color:var(--primary);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 16%,transparent);
+}
+.field input{flex:1;min-width:0;border:0;background:none;outline:none;font-size:14px;letter-spacing:.04em;}
+.field input::placeholder{letter-spacing:normal;color:var(--outline);}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  height:38px;padding:0 16px;border-radius:var(--r-lg);
+  font-size:13.5px;font-weight:600;letter-spacing:-.01em;
+  transition:filter .15s var(--ease),transform .08s var(--ease),background .15s var(--ease);
+}
+.btn.primary{background:var(--primary);color:var(--on-primary);}
+.btn.primary:hover{filter:brightness(1.08);}
+.btn.primary:active{transform:scale(.985);}
+.btn.quiet{background:var(--sc);color:var(--on-surface-var);}
+.btn.quiet:hover{background:var(--sc-high);color:var(--on-surface);}
+.btn.full{width:100%;}
+.hint{font-size:11.5px;color:var(--outline);line-height:1.55;}
+.hint.warn{color:var(--amber);}
+
+/* ═══ OVERLAYS ════════════════════════════════════════════════════════════ */
+.scrim{
+  position:fixed;inset:0;z-index:60;background:var(--scrim);
+  display:grid;place-items:center;padding:24px;
+  backdrop-filter:blur(3px);
+  animation:fade .16s var(--ease);
+}
+@keyframes fade{from{opacity:0;}}
+@keyframes rise{from{opacity:0;transform:translateY(8px) scale(.985);}}
+.modal{
+  width:100%;max-width:398px;border-radius:var(--r-xl);
+  background:var(--sc-low);border:1px solid color-mix(in srgb,var(--outline-var) 70%,transparent);
+  box-shadow:var(--shadow-3);padding:24px;
+  animation:rise .18s var(--ease);
+}
+.modal .mh{display:flex;align-items:flex-start;gap:12px;margin-bottom:18px;}
+.modal .mi{width:36px;height:36px;border-radius:var(--r-lg);flex:none;display:grid;place-items:center;background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);}
+.modal h4{margin:0 0 3px;font-size:15px;font-weight:640;letter-spacing:-.015em;}
+.modal .sub{font-size:12.5px;color:var(--outline);line-height:1.5;}
+
+/* command palette */
+.palette{
+  width:100%;max-width:560px;border-radius:var(--r-xl);overflow:hidden;
+  background:var(--sc-low);border:1px solid color-mix(in srgb,var(--outline-var) 70%,transparent);
+  box-shadow:var(--shadow-3);animation:rise .18s var(--ease);
+  align-self:start;margin-top:12vh;
+}
+.palette .pin{display:flex;align-items:center;gap:11px;padding:14px 16px;border-bottom:1px solid color-mix(in srgb,var(--outline-var) 45%,transparent);}
+.palette .pin input{flex:1;border:0;background:none;outline:none;font-size:15px;letter-spacing:-.01em;}
+.palette .pin input::placeholder{color:var(--outline);}
+.plist{max-height:344px;overflow-y:auto;padding:6px;}
+.psec{padding:9px 10px 4px;font-size:10.5px;font-weight:650;letter-spacing:.09em;text-transform:uppercase;color:var(--outline);}
+.pitem{
+  display:flex;align-items:center;gap:11px;width:100%;padding:8px 10px;border-radius:var(--r);
+  color:var(--on-surface-var);text-align:left;
+}
+.pitem:hover,.pitem.on{background:var(--sc-high);color:var(--on-surface);}
+.pitem .pt{flex:1;min-width:0;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pitem .pm{font-size:11px;color:var(--outline);}
+
+/* dropdown menu */
+.menu{
+  position:absolute;z-index:70;min-width:212px;padding:5px;
+  border-radius:var(--r-lg);background:var(--sc-low);
+  border:1px solid color-mix(in srgb,var(--outline-var) 70%,transparent);
+  box-shadow:var(--shadow-3);animation:rise .14s var(--ease);
+}
+.mi{
+  display:flex;align-items:center;gap:10px;width:100%;
+  padding:7px 9px;border-radius:var(--r-sm);
+  font-size:13px;color:var(--on-surface-var);text-align:left;
+}
+.mi:hover{background:var(--sc-high);color:var(--on-surface);}
+.mi .k{margin-left:auto;font-size:10.5px;color:var(--outline);font-family:ui-monospace,Menlo,monospace;}
+.mi.danger{color:var(--danger);}
+.mi.danger:hover{background:color-mix(in srgb,var(--danger) 14%,transparent);}
+.msep{height:1px;background:color-mix(in srgb,var(--outline-var) 55%,transparent);margin:5px 4px;}
+.mlabel{padding:7px 9px 4px;font-size:10.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--outline);}
+
+/* ═══ DEMO CHROME (not part of the design) ════════════════════════════════ */
+.demobar{
+  position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:80;
+  display:flex;align-items:center;gap:4px;padding:5px;
+  border-radius:var(--r-pill);
+  background:var(--sc-low);border:1px solid color-mix(in srgb,var(--outline-var) 80%,transparent);
+  box-shadow:var(--shadow-3);
+}
+.demobar .lbl{font-size:10.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--outline);padding:0 8px 0 10px;}
+.demobar button{
+  padding:6px 11px;border-radius:var(--r-pill);font-size:12.5px;font-weight:540;color:var(--on-surface-var);
+  transition:background .15s var(--ease),color .15s var(--ease);white-space:nowrap;
+}
+.demobar button:hover{background:var(--sc-high);color:var(--on-surface);}
+.demobar button.on{background:var(--primary);color:var(--on-primary);font-weight:620;}
+.demobar .vsep{width:1px;height:18px;background:var(--outline-var);opacity:.6;margin:0 3px;}
+
+/* annotation pins */
+.pinmark{
+  position:absolute;z-index:50;width:19px;height:19px;border-radius:99px;
+  background:var(--tertiary);color:#2a1400;
+  font:700 11px/19px ui-monospace,Menlo,monospace;text-align:center;
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--tertiary) 28%,transparent),var(--shadow-1);
+  display:none;cursor:default;
+}
+body.annotated .pinmark{display:block;}
+.pinmark:hover{z-index:55;}
+.pinmark .tip{
+  position:absolute;left:26px;top:-6px;width:246px;
+  padding:9px 11px;border-radius:var(--r);
+  background:var(--sc-highest);color:var(--on-surface);
+  font:400 11.5px/1.5 "Inter",sans-serif;text-align:left;letter-spacing:0;
+  box-shadow:var(--shadow-3);opacity:0;pointer-events:none;transform:translateX(-4px);
+  transition:opacity .15s var(--ease),transform .15s var(--ease);
+}
+.pinmark:hover .tip{opacity:1;transform:none;}
+.pinmark.flip .tip{left:auto;right:26px;}
+
+/* responsive: sidebar becomes an overlay */
+@media (max-width:880px){
+  .sidebar{position:absolute;top:52px;bottom:0;left:0;z-index:40;box-shadow:var(--shadow-3);transform:translateX(-100%);transition:transform .22s var(--ease);}
+  body.nav-open .sidebar{transform:none;}
+  .sheet{padding:40px 20px 40vh;}
+  .crumbs .cur{max-width:130px;}
+  .demobar{flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 24px);}
+}
+</style>
+</head>
+<body>
+
+<!-- ── icon sprite ─────────────────────────────────────────────────────── -->
+<svg style="display:none" aria-hidden="true">
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2.2"/><path d="M8 10.5V7.6a4 4 0 0 1 8 0v2.9"/></symbol>
+  <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2.2"/><path d="M8 10.5V7.6a4 4 0 0 1 7.5-1.9"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M6 3.5h8l5 5V20a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 20V5a1.5 1.5 0 0 1 1.5-1.5Z"/><path d="M14 3.5V9h5"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.35" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.35" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.35" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 19a4.5 4.5 0 0 1-.4-8.98A5.5 5.5 0 0 1 17.4 10 3.9 3.9 0 0 1 17 19Z"/></symbol>
+  <symbol id="i-cloud-off" viewBox="0 0 24 24"><path d="M7 19a4.5 4.5 0 0 1-.4-8.98A5.5 5.5 0 0 1 12 6"/><path d="M17 19a3.9 3.9 0 0 0 .4-8.99"/><path d="m4 3 17 18"/></symbol>
+  <symbol id="i-cloud-up" viewBox="0 0 24 24"><path d="M7 18.5a4.5 4.5 0 0 1-.4-8.98A5.5 5.5 0 0 1 17.4 9.5 3.9 3.9 0 0 1 17 18.5"/><path d="M12 21v-8m0 0-2.6 2.6M12 13l2.6 2.6"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4 8.2 8.2 0 1 0 20 14.2Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.2 5.2l1.4 1.4M17.4 17.4l1.4 1.4M18.8 5.2l-1.4 1.4M6.6 17.4l-1.4 1.4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.8 4.5 6v6c0 4.5 3.1 8.3 7.5 9.4 4.4-1.1 7.5-4.9 7.5-9.4V6Z"/><path d="m9 12 2.2 2.2L15.4 10"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3.2 13.8 8l4.8 1.8-4.8 1.8L12 16.4l-1.8-4.8L5.4 9.8 10.2 8Z"/><path d="M18.4 15.6 19.3 18l2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9Z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.9"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M9.9 5.9A9.4 9.4 0 0 1 12 5.7c6 0 9.5 6.2 9.5 6.2a17 17 0 0 1-3.3 3.9M6.4 7.9A16.6 16.6 0 0 0 2.5 12s3.5 6.2 9.5 6.2a9.6 9.6 0 0 0 3.4-.6"/><path d="m4 3 17 18"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.8v.4"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 6.5h15M9.5 6.5V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v1.5M6.5 6.5 7.4 19a1.6 1.6 0 0 0 1.6 1.5h6a1.6 1.6 0 0 0 1.6-1.5l.9-12.5"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 3.5v12m0 0-4-4m4 4 4-4"/><path d="M4 17.5v1.6A1.9 1.9 0 0 0 5.9 21h12.2a1.9 1.9 0 0 0 1.9-1.9v-1.6"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 20.5v-12m0 0-4 4m4-4 4 4"/><path d="M4 6.5V4.9A1.9 1.9 0 0 1 5.9 3h12.2A1.9 1.9 0 0 1 20 4.9v1.6"/></symbol>
+  <symbol id="i-move" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 13h6m0 0-2-2m2 2-2 2"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="12" r="4"/><path d="M12 12h9m-3 0v3m-2-3v2.2"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L20 8a2.5 2.5 0 0 0-3.5-3.5L4 16.5Z"/><path d="m15 6 3 3"/></symbol>
+  <symbol id="i-cmd" viewBox="0 0 24 24"><path d="M9 6.5a2.5 2.5 0 1 0-2.5 2.5H9m0 0h6m-6 0v6m6-6h2.5A2.5 2.5 0 1 0 15 6.5V9m0 6v2.5a2.5 2.5 0 1 0 2.5-2.5H15m0 0H9m0 0H6.5A2.5 2.5 0 1 0 9 17.5V15"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.3l3.2 1.9"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.8 20a7.2 7.2 0 0 1 14.4 0"/></symbol>
+</svg>
+
+<div class="app" id="app">
+
+  <!-- ═══ TOP BAR ═══════════════════════════════════════════════════════ -->
+  <header class="topbar">
+    <button class="iconbtn" id="navToggle" style="display:none" aria-label="Notes"><svg class="icon"><use href="#i-menu"/></svg></button>
+    <div class="brand">
+      <span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L20 8a2.5 2.5 0 0 0-3.5-3.5L4 16.5Z"/></svg></span>
+      <b>Hushwrite</b>
+      <span class="pinmark" style="left:96px;top:34px" data-pin>1
+        <span class="tip"><b>One lock indicator.</b> The old header said “LOCKED” under the wordmark <i>and</i> in a chip <i>and</i> per folder — three visual languages for one fact. Now the session pill is canonical.</span>
+      </span>
+    </div>
+
+    <span class="spacer"></span>
+
+    <button class="cloud" id="cloudChip" title="Backup — last snapshot 14 min ago">
+      <svg class="icon"><use href="#i-cloud"/></svg>
+      <span id="cloudLbl">Backed up</span>
+    </button>
+
+    <button class="session" id="sessionPill">
+      <span class="dot"></span>
+      <span id="sessionLbl">Unlocked</span>
+      <span class="t" id="sessionTimer">14:52</span>
+    </button>
+
+    <span class="divider-v"></span>
+    <button class="iconbtn" id="themeBtn" aria-label="Theme"><svg class="icon"><use href="#i-sun" id="themeIcon"/></svg></button>
+    <button class="avatar" title="elissa@amedaz.com">ET</button>
+  </header>
+
+  <div class="body">
+
+    <!-- ═══ SIDEBAR ═════════════════════════════════════════════════════ -->
+    <aside class="sidebar">
+      <div class="side-top" style="position:relative">
+        <label class="search">
+          <svg class="icon sm"><use href="#i-search"/></svg>
+          <input placeholder="Search unlocked notes" id="searchInput" />
+          <span class="kbd">⌘K</span>
+        </label>
+        <span class="pinmark" style="left:238px;top:14px" data-pin>2
+          <span class="tip"><b>Search + ⌘K palette.</b> There was no way to find a note. Search covers what’s unlocked; the palette also jumps to folders, toggles preview and runs export.</span>
+        </span>
+
+        <div class="newrow">
+          <button class="main" id="newNoteBtn"><svg class="icon sm"><use href="#i-plus"/></svg>New note</button>
+          <button class="caret" id="newCaret" aria-label="More new items"><svg class="icon sm"><use href="#i-chev-d"/></svg></button>
+        </div>
+        <span class="pinmark" style="left:238px;top:52px" data-pin>3
+          <span class="tip"><b>One primary action.</b> The two big cards ate ~25% of the rail and outranked the notes. Now: one button, secondary creates behind the caret.</span>
+        </span>
+      </div>
+
+      <div class="side-scroll" id="tree">
+        <div class="grouplabel"><span>Folders</span><span class="n">3</span></div>
+
+        <!-- unlocked folder -->
+        <button class="row open unlocked selected-parent" data-toggle="f-journal">
+          <span class="twisty"><svg class="icon sm"><use href="#i-chev-r"/></svg></span>
+          <span class="lead"><svg class="icon sm"><use href="#i-folder"/></svg></span>
+          <span class="name">Journal</span>
+          <span class="lockdot" title="Unlocked"><svg class="icon sm"><use href="#i-unlock"/></svg></span>
+          <span class="meta">12</span>
+          <span class="more" data-menu="folder"><svg class="icon sm"><use href="#i-more"/></svg></span>
+        </button>
+        <div class="children" id="f-journal">
+          <button class="row selected" data-open="note">
+            <span class="lead"><svg class="icon sm"><use href="#i-note"/></svg></span>
+            <span class="name">Reading list — Q3</span>
+            <span class="meta">2m</span>
+            <span class="more" data-menu="note"><svg class="icon sm"><use href="#i-more"/></svg></span>
+          </button>
+          <button class="row">
+            <span class="lead"><svg class="icon sm"><use href="#i-note"/></svg></span>
+            <span class="name">Zahle, first week</span>
+            <span class="meta">Tue</span>
+            <span class="more" data-menu="note"><svg class="icon sm"><use href="#i-more"/></svg></span>
+          </button>
+          <button class="row">
+            <span class="lead"><svg class="icon sm"><use href="#i-note"/></svg></span>
+            <span class="name">Things I keep forgetting</span>
+            <span class="meta">Aug 12</span>
+            <span class="more" data-menu="note"><svg class="icon sm"><use href="#i-more"/></svg></span>
+          </button>
+        </div>
+
+        <!-- locked folders -->
+        <button class="row locked" data-open="locked-folder">
+          <span class="twisty"><svg class="icon sm"><use href="#i-chev-r"/></svg></span>
+          <span class="lead"><svg class="icon sm"><use href="#i-folder"/></svg></span>
+          <span class="name">Work</span>
+          <span class="lockdot" title="Locked"><svg class="icon sm"><use href="#i-lock"/></svg></span>
+          <span class="meta">5</span>
+          <span class="more" data-menu="folder"><svg class="icon sm"><use href="#i-more"/></svg></span>
+        </button>
+        <button class="row locked" data-open="locked-folder">
+          <span class="twisty"><svg class="icon sm"><use href="#i-chev-r"/></svg></span>
+          <span class="lead"><svg class="icon sm"><use href="#i-folder"/></svg></span>
+          <span class="name">Archive</span>
+          <span class="lockdot" title="Locked"><svg class="icon sm"><use href="#i-lock"/></svg></span>
+          <span class="meta">31</span>
+          <span class="more" data-menu="folder"><svg class="icon sm"><use href="#i-more"/></svg></span>
+        </button>
+
+        <div class="grouplabel" style="position:relative">
+          <span>Notes</span><span class="n">2</span>
+          <span class="pinmark" style="left:186px;top:8px" data-pin>4
+            <span class="tip"><b>Same row anatomy everywhere.</b> Root notes and folders were drawn as two different lists even though your model says they’re siblings. Now every row is <code>[twisty|icon] · name · lock · meta · ⋯</code>.</span>
+          </span>
+        </div>
+
+        <button class="row locked" data-open="locked-note">
+          <span class="twisty" style="visibility:hidden"><svg class="icon sm"><use href="#i-chev-r"/></svg></span>
+          <span class="lead"><svg class="icon sm"><use href="#i-note"/></svg></span>
+          <span class="name">Passport &amp; account numbers</span>
+          <span class="lockdot" title="Locked · own passphrase"><svg class="icon sm"><use href="#i-lock"/></svg></span>
+          <span class="meta">Jul 3</span>
+          <span class="more" data-menu="note"><svg class="icon sm"><use href="#i-more"/></svg></span>
+        </button>
+        <button class="row unlocked" data-open="empty">
+          <span class="twisty" style="visibility:hidden"><svg class="icon sm"><use href="#i-chev-r"/></svg></span>
+          <span class="lead"><svg class="icon sm"><use href="#i-note"/></svg></span>
+          <span class="name">Untitled draft</span>
+          <span class="lockdot" title="Draft · not saved yet" style="color:var(--amber)"><svg class="icon sm"><use href="#i-pen"/></svg></span>
+          <span class="meta">now</span>
+          <span class="more" data-menu="note"><svg class="icon sm"><use href="#i-more"/></svg></span>
+        </button>
+      </div>
+
+      <div class="side-foot">
+        <span>48 notes · 3 folders</span>
+        <button class="ghost"><svg class="icon sm"><use href="#i-up"/></svg>Import</button>
+      </div>
+    </aside>
+
+    <!-- ═══ EDITOR PANE ═════════════════════════════════════════════════ -->
+    <main class="pane" id="pane">
+
+      <div class="toolbar">
+        <nav class="crumbs" id="crumbs">
+          <button class="c"><svg class="icon sm"><use href="#i-folder"/></svg>Journal</button>
+          <span class="sep">/</span>
+          <span class="cur">Reading list — Q3</span>
+        </nav>
+        <span class="spacer"></span>
+
+        <span class="savestate saved" id="saveState">
+          <span class="dot"></span><span id="saveLbl">Saved</span>
+        </span>
+        <span class="pinmark" style="right:212px;top:33px" data-pin="flip">5
+          <span class="tip"><b>No Save FAB.</b> You autosave at 1500 ms — a heavy floating blue button screamed “unsaved”. Now it’s a quiet status that only turns into a button when the doc is actually dirty. Click it to see.</span>
+        </span>
+
+        <span class="wc" id="wcLbl">412 words · 2 min</span>
+        <span class="tsep"></span>
+
+        <button class="aibtn" id="aiBtn"><svg class="icon sm"><use href="#i-sparkle"/></svg>AI</button>
+        <button class="iconbtn" id="previewBtn" title="Preview (⌘⇧P)"><svg class="icon"><use href="#i-eye"/></svg></button>
+        <button class="iconbtn" id="moreBtn" title="More"><svg class="icon"><use href="#i-more"/></svg></button>
+        <span class="pinmark" style="right:14px;top:33px" data-pin="flip">6
+          <span class="tip"><b>Export demoted.</b> <code>.MD / PDF / .hwrite</code> owned the most valuable strip on screen for a once-a-week action. They now live in <b>⋯</b> with note info, move, and delete. Click it.</span>
+        </span>
+      </div>
+
+      <!-- ── writing surface ── -->
+      <div class="canvas" id="viewEditor">
+        <article class="sheet" style="position:relative">
+          <span class="pinmark" style="left:-26px;top:58px" data-pin>7
+            <span class="tip"><b>One measured column.</b> Text used to run the full window width and the title floated unattached. 68ch measure, title welded to the body by a meta rule.</span>
+          </span>
+
+          <h1 class="doctitle" contenteditable spellcheck="false">Reading list — Q3</h1>
+          <div class="docmeta">
+            <span class="pillmini"><svg class="icon sm" style="width:12px;height:12px"><use href="#i-unlock"/></svg>Journal</span>
+            <span>Edited 2 minutes ago</span>
+            <span class="d">·</span>
+            <span>Created 12 Aug</span>
+          </div>
+
+          <div class="prose" contenteditable spellcheck="false">
+            <p>Three things I want to finish before the internship wraps, plus the ones I keep pretending I'll get to.</p>
+            <h2>Actually reading</h2>
+            <ul>
+              <li><b>Designing Data-Intensive Applications</b> — ch. 5 onward. The replication chapter finally made the sync conflict rules click.</li>
+              <li><b>The Design of Everyday Things</b> — short, and it keeps showing up in every UI argument I lose.</li>
+              <li>Anything on <code>libsodium</code> that isn't the man pages.</li>
+            </ul>
+            <blockquote>“A simple system has room for enhancement. A complicated one is a maintenance nightmare.” — worth taping to the monitor.</blockquote>
+            <h2>Notes to self</h2>
+            <p>The PBKDF2 iteration count is a <i>latency</i> decision as much as a security one — 600k costs about a third of a second on this laptop, which is fine for unlocking but would be miserable per-keystroke. Keep the derive off the hot path.</p>
+            <p>Re-read the bit on <a href="#">last-write-wins</a> before touching the sync endpoint again<span class="caret-line"></span></p>
+          </div>
+        </article>
+      </div>
+
+      <!-- ── empty state ── -->
+      <div class="center" id="viewEmpty" style="display:none">
+        <div class="stack">
+          <div class="glyph"><svg class="icon xl"><use href="#i-pen"/></svg></div>
+          <h3>Nothing open</h3>
+          <p>Pick a note from the left, or start something new.</p>
+          <div class="quick">
+            <button data-open="note">
+              <span class="qi"><svg class="icon sm"><use href="#i-plus"/></svg></span>
+              <span class="qt"><b>New note</b><span>Its own passphrase · <span style="font-family:ui-monospace,Menlo,monospace">⌘N</span></span></span>
+            </button>
+            <button data-open="empty">
+              <span class="qi"><svg class="icon sm"><use href="#i-folder"/></svg></span>
+              <span class="qt"><b>New folder</b><span>One passphrase for everything inside · <span style="font-family:ui-monospace,Menlo,monospace">⌘⇧N</span></span></span>
+            </button>
+            <button data-open="empty">
+              <span class="qi"><svg class="icon sm"><use href="#i-up"/></svg></span>
+              <span class="qt"><b>Import .hwrite</b><span>A single note or a whole folder bundle</span></span>
+            </button>
+          </div>
+          <div class="assure">
+            <svg class="icon sm"><use href="#i-shield"/></svg>
+            Encrypted on this device before anything is stored.
+          </div>
+        </div>
+        <span class="pinmark" style="left:50%;margin-left:-230px;top:calc(50% + 130px)" data-pin>8
+          <span class="tip"><b>The empty state does work.</b> A blank canvas taught nothing. This names the one thing new users get wrong — note vs. folder passphrase scope — right where they decide.</span>
+        </span>
+      </div>
+
+      <!-- ── locked note ── -->
+      <div class="center" id="viewLockedNote" style="display:none">
+        <div class="lockcard">
+          <div class="glyph"><svg class="icon xl"><use href="#i-lock"/></svg></div>
+          <span class="scope"><svg class="icon sm"><use href="#i-note"/></svg>This note has its own passphrase</span>
+          <h3 style="margin:0 0 6px;font-size:17px;font-weight:640;letter-spacing:-.02em">Passport &amp; account numbers</h3>
+          <p style="margin:0 0 20px;font-size:12.5px;color:var(--outline)">Last edited 3 July · 1.4 KB encrypted</p>
+          <label class="field" style="margin-bottom:12px">
+            <svg class="icon sm" style="color:var(--outline)"><use href="#i-key"/></svg>
+            <input type="password" placeholder="Passphrase" value="············" />
+            <button class="iconbtn" style="width:28px;height:28px" aria-label="Reveal"><svg class="icon sm"><use href="#i-eye-off"/></svg></button>
+          </label>
+          <button class="btn primary full" data-open="note"><svg class="icon sm"><use href="#i-unlock"/></svg>Unlock</button>
+          <p class="hint" style="margin:14px 0 0">There is no recovery. If the passphrase is gone, the note is gone.</p>
+        </div>
+      </div>
+
+      <!-- ── locked folder ── -->
+      <div class="center" id="viewLockedFolder" style="display:none">
+        <div class="lockcard" style="position:relative">
+          <span class="pinmark" style="left:-26px;top:120px" data-pin>9
+            <span class="tip"><b>Scope is stated, not inferred.</b> The one thing people misread about your model is what a passphrase covers. Every unlock now says it out loud: “unlocks all 5 notes”.</span>
+          </span>
+          <div class="glyph"><svg class="icon xl"><use href="#i-folder"/></svg></div>
+          <span class="scope"><svg class="icon sm"><use href="#i-key"/></svg>Unlocks all 5 notes in this folder</span>
+          <h3 style="margin:0 0 6px;font-size:17px;font-weight:640;letter-spacing:-.02em">Work</h3>
+          <p style="margin:0 0 20px;font-size:12.5px;color:var(--outline)">5 notes · stays unlocked for 15 min of activity</p>
+          <label class="field" style="margin-bottom:12px">
+            <svg class="icon sm" style="color:var(--outline)"><use href="#i-key"/></svg>
+            <input type="password" placeholder="Folder passphrase" autofocus />
+            <button class="iconbtn" style="width:28px;height:28px" aria-label="Reveal"><svg class="icon sm"><use href="#i-eye-off"/></svg></button>
+          </label>
+          <button class="btn primary full" data-open="note"><svg class="icon sm"><use href="#i-unlock"/></svg>Unlock folder</button>
+          <button class="hint" id="leakBtn" style="margin:14px auto 0;display:flex;align-items:center;gap:6px;text-align:left">
+            <svg class="icon sm" style="flex:none"><use href="#i-info"/></svg>
+            What's visible while this folder is locked
+          </button>
+          <div id="leakDetail" style="display:none;margin-top:10px;padding:11px 12px;border-radius:var(--r);background:var(--sc);text-align:left">
+            <p class="hint" style="margin:0 0 8px"><b style="color:var(--on-surface-var)">Readable without the passphrase:</b> the folder name, how many notes are in it, and when each was last edited.</p>
+            <p class="hint" style="margin:0"><b style="color:var(--ok)">Never readable:</b> note titles, note contents, images.</p>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ═══ OVERLAYS ═════════════════════════════════════════════════════════ -->
+
+<!-- command palette -->
+<div class="scrim" id="paletteScrim" style="display:none;align-items:flex-start">
+  <div class="palette">
+    <div class="pin">
+      <svg class="icon lg" style="color:var(--outline)"><use href="#i-search"/></svg>
+      <input placeholder="Search notes, jump to a folder, run a command…" autofocus />
+      <span class="kbd">esc</span>
+    </div>
+    <div class="plist">
+      <div class="psec">Notes</div>
+      <button class="pitem on"><svg class="icon sm"><use href="#i-note"/></svg><span class="pt">Reading list — Q3</span><span class="pm">Journal</span></button>
+      <button class="pitem"><svg class="icon sm"><use href="#i-note"/></svg><span class="pt">Zahle, first week</span><span class="pm">Journal</span></button>
+      <button class="pitem" style="opacity:.62"><svg class="icon sm"><use href="#i-lock"/></svg><span class="pt">5 notes in Work</span><span class="pm">locked — unlock to search</span></button>
+      <div class="psec">Commands</div>
+      <button class="pitem"><svg class="icon sm"><use href="#i-plus"/></svg><span class="pt">New note</span><span class="pm">⌘N</span></button>
+      <button class="pitem"><svg class="icon sm"><use href="#i-lock"/></svg><span class="pt">Lock session now</span><span class="pm">⌘L</span></button>
+      <button class="pitem"><svg class="icon sm"><use href="#i-down"/></svg><span class="pt">Export note as PDF…</span></button>
+      <button class="pitem"><svg class="icon sm"><use href="#i-sparkle"/></svg><span class="pt">AI · Summarize note</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- passphrase modal (new note) -->
+<div class="scrim" id="passScrim" style="display:none">
+  <div class="modal">
+    <div class="mh">
+      <span class="mi"><svg class="icon"><use href="#i-key"/></svg></span>
+      <div>
+        <h4>Set a passphrase for this note</h4>
+        <p class="sub">This note isn’t in a folder, so it carries its own lock.</p>
+      </div>
+    </div>
+    <label class="field" style="margin-bottom:10px">
+      <input type="password" placeholder="Passphrase" autofocus />
+      <button class="iconbtn" style="width:28px;height:28px"><svg class="icon sm"><use href="#i-eye-off"/></svg></button>
+    </label>
+    <label class="field" style="margin-bottom:12px">
+      <input type="password" placeholder="Confirm passphrase" />
+    </label>
+    <div style="display:flex;gap:5px;margin-bottom:8px">
+      <span style="flex:1;height:3px;border-radius:99px;background:var(--ok)"></span>
+      <span style="flex:1;height:3px;border-radius:99px;background:var(--ok)"></span>
+      <span style="flex:1;height:3px;border-radius:99px;background:var(--ok)"></span>
+      <span style="flex:1;height:3px;border-radius:99px;background:var(--sc-high)"></span>
+    </div>
+    <p class="hint" style="margin:0 0 18px">Strong · roughly a century to guess offline.</p>
+    <p class="hint warn" style="display:flex;gap:8px;margin:0 0 18px;padding:10px 11px;border-radius:var(--r);background:color-mix(in srgb,var(--amber) 11%,transparent)">
+      <svg class="icon sm" style="flex:none;margin-top:1px"><use href="#i-info"/></svg>
+      <span>There is no reset. Lose this and the note is unrecoverable — that’s the point, but write it down somewhere real.</span>
+    </p>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn quiet" data-close>Cancel</button>
+      <button class="btn primary" data-close data-open="note">Encrypt &amp; save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ⋯ note menu -->
+<div class="menu" id="noteMenu" style="display:none">
+  <button class="mi"><svg class="icon sm"><use href="#i-info"/></svg>Note info<span class="k">⌘I</span></button>
+  <button class="mi"><svg class="icon sm"><use href="#i-move"/></svg>Move to folder…</button>
+  <button class="mi"><svg class="icon sm"><use href="#i-key"/></svg>Change passphrase…</button>
+  <div class="msep"></div>
+  <div class="mlabel">Export</div>
+  <button class="mi"><svg class="icon sm"><use href="#i-down"/></svg>Markdown (.md)</button>
+  <button class="mi"><svg class="icon sm"><use href="#i-down"/></svg>PDF…</button>
+  <button class="mi"><svg class="icon sm"><use href="#i-shield"/></svg>Encrypted (.hwrite)</button>
+  <div class="msep"></div>
+  <button class="mi danger"><svg class="icon sm"><use href="#i-trash"/></svg>Delete note</button>
+</div>
+
+<!-- ⋯ folder menu -->
+<div class="menu" id="folderMenu" style="display:none">
+  <button class="mi"><svg class="icon sm"><use href="#i-pen"/></svg>Rename</button>
+  <button class="mi"><svg class="icon sm"><use href="#i-lock"/></svg>Lock folder</button>
+  <button class="mi"><svg class="icon sm"><use href="#i-key"/></svg>Change passphrase…</button>
+  <div class="msep"></div>
+  <button class="mi"><svg class="icon sm"><use href="#i-down"/></svg>Export folder (.hwrite)</button>
+  <div class="msep"></div>
+  <button class="mi danger"><svg class="icon sm"><use href="#i-trash"/></svg>Delete folder</button>
+</div>
+
+<!-- new-item menu -->
+<div class="menu" id="newMenu" style="display:none">
+  <button class="mi" data-close-menu><svg class="icon sm"><use href="#i-note"/></svg>New note<span class="k">⌘N</span></button>
+  <button class="mi" data-close-menu><svg class="icon sm"><use href="#i-folder"/></svg>New folder<span class="k">⌘⇧N</span></button>
+  <div class="msep"></div>
+  <button class="mi" data-close-menu><svg class="icon sm"><use href="#i-up"/></svg>Import .hwrite…</button>
+</div>
+
+<!-- AI menu -->
+<div class="menu" id="aiMenu" style="display:none">
+  <div class="mlabel">Runs locally · nothing leaves the device</div>
+  <button class="mi"><svg class="icon sm"><use href="#i-sparkle"/></svg>Improve writing</button>
+  <button class="mi"><svg class="icon sm"><use href="#i-sparkle"/></svg>Summarize note</button>
+  <button class="mi"><svg class="icon sm"><use href="#i-sparkle"/></svg>Continue writing</button>
+  <button class="mi"><svg class="icon sm"><use href="#i-pen"/></svg>Generate title</button>
+</div>
+
+<!-- ═══ DEMO CONTROLS (not part of the design) ═════════════════════════════ -->
+<div class="demobar">
+  <span class="lbl">State</span>
+  <button data-open="note" class="on">Editing</button>
+  <button data-open="empty">Empty</button>
+  <button data-open="locked-note">Locked note</button>
+  <button data-open="locked-folder">Locked folder</button>
+  <button data-open="palette">⌘K</button>
+  <button data-open="pass">Passphrase</button>
+  <span class="vsep"></span>
+  <button id="annotBtn">Design notes</button>
+</div>
+
+<script>
+const $  = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
+
+/* ── view switching ─────────────────────────────────────────────────────── */
+const views = {
+  note:  ["#viewEditor"],
+  empty: ["#viewEmpty"],
+  "locked-note":   ["#viewLockedNote"],
+  "locked-folder": ["#viewLockedFolder"],
+};
+function show(view){
+  if(view==="palette"){ $("#paletteScrim").style.display="grid"; return; }
+  if(view==="pass"){ $("#passScrim").style.display="grid"; return; }
+  Object.values(views).flat().forEach(sel => $(sel).style.display = "none");
+  (views[view]||views.note).forEach(sel => $(sel).style.display = sel==="#viewEditor" ? "block" : "grid");
+
+  // toolbar adapts: no doc-level actions when nothing is open
+  const editing = view === "note";
+  ["#saveState","#wcLbl","#aiBtn","#previewBtn","#moreBtn"].forEach(s => $(s).style.visibility = editing ? "" : "hidden");
+  $("#crumbs").style.opacity = editing ? "1" : "0";
+
+  $$(".demobar button[data-open]").forEach(b => b.classList.toggle("on", b.dataset.open===view));
+  document.body.classList.remove("nav-open");
+}
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-open]");
+  if(t){ show(t.dataset.open); }
+  if(e.target.closest("[data-close]")) closeOverlays();
+});
+
+/* ── overlays ───────────────────────────────────────────────────────────── */
+function closeOverlays(){
+  $("#paletteScrim").style.display="none";
+  $("#passScrim").style.display="none";
+  closeMenus();
+}
+$$(".scrim").forEach(s => s.addEventListener("mousedown", e => { if(e.target===s) closeOverlays(); }));
+addEventListener("keydown", e => {
+  if(e.key==="Escape") closeOverlays();
+  if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="k"){ e.preventDefault(); show("palette"); }
+  if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="s"){ e.preventDefault(); setSave("saving"); }
+});
+
+/* ── contextual menus ───────────────────────────────────────────────────── */
+const menus = ["#noteMenu","#folderMenu","#newMenu","#aiMenu"];
+function closeMenus(){ menus.forEach(m => $(m).style.display="none"); }
+function openMenu(sel, anchor, align="left"){
+  closeMenus();
+  const m = $(sel); m.style.display="block";
+  const r = anchor.getBoundingClientRect(), mr = m.getBoundingClientRect();
+  let left = align==="right" ? r.right - mr.width : r.left;
+  left = Math.max(8, Math.min(left, innerWidth - mr.width - 8));
+  let top = r.bottom + 6;
+  if(top + mr.height > innerHeight - 8) top = Math.max(8, r.top - mr.height - 6);
+  m.style.left = left+"px"; m.style.top = top+"px";
+}
+document.addEventListener("click", e => {
+  const trigger = e.target.closest("[data-menu]");
+  if(trigger){
+    e.stopPropagation();
+    openMenu(trigger.dataset.menu==="folder" ? "#folderMenu" : "#noteMenu", trigger, "right");
+    return;
+  }
+  if(e.target.closest("#newCaret")){ e.stopPropagation(); openMenu("#newMenu", $("#newCaret"), "right"); return; }
+  if(e.target.closest("#moreBtn")){ e.stopPropagation(); openMenu("#noteMenu", $("#moreBtn"), "right"); return; }
+  if(e.target.closest("#aiBtn")){ e.stopPropagation(); openMenu("#aiMenu", $("#aiBtn"), "right"); return; }
+  if(e.target.closest("[data-close-menu]") || !e.target.closest(".menu")) closeMenus();
+});
+$("#newNoteBtn").addEventListener("click", () => show("pass"));
+
+/* ── sidebar tree ───────────────────────────────────────────────────────── */
+$$("[data-toggle]").forEach(row => row.addEventListener("click", e => {
+  if(e.target.closest("[data-menu]")) return;
+  const kids = $("#"+row.dataset.toggle);
+  const open = row.classList.toggle("open");
+  kids.style.display = open ? "flex" : "none";
+}));
+$$("#tree .row").forEach(row => row.addEventListener("click", e => {
+  if(e.target.closest("[data-menu]")) return;
+  if(row.dataset.toggle) return;
+  $$("#tree .row").forEach(r => r.classList.remove("selected"));
+  row.classList.add("selected");
+}));
+
+/* ── save state: quiet → button, the whole point of killing the FAB ─────── */
+const saveEl = $("#saveState"), saveLbl = $("#saveLbl");
+function setSave(state){
+  saveEl.className = "savestate " + state;
+  saveLbl.textContent = {saved:"Saved", saving:"Saving…", dirty:"Unsaved · ⌘S"}[state];
+  if(state==="saving") setTimeout(()=>setSave("saved"), 750);
+}
+saveEl.addEventListener("click", () => { if(saveEl.classList.contains("dirty")) setSave("saving"); });
+$(".prose").addEventListener("input", () => setSave("dirty"));
+$(".doctitle").addEventListener("input", () => setSave("dirty"));
+
+/* ── session pill: countdown, then auto-lock, exactly like IDLE_LOCK_MS ─── */
+let secs = 15*60, unlocked = true;
+const timerEl = $("#sessionTimer"), pill = $("#sessionPill"), sessLbl = $("#sessionLbl");
+setInterval(() => {
+  if(!unlocked) return;
+  secs--;
+  timerEl.textContent = String(Math.floor(secs/60)).padStart(2,"0")+":"+String(secs%60).padStart(2,"0");
+  if(secs<=0) setLocked(true);
+}, 1000);
+function setLocked(v){
+  unlocked = !v;
+  pill.classList.toggle("locked", v);
+  sessLbl.textContent = v ? "Locked" : "Unlocked";
+  timerEl.style.display = v ? "none" : "";
+  if(v) show("locked-folder"); else { secs = 15*60; show("note"); }
+}
+pill.addEventListener("click", () => setLocked(unlocked));
+
+/* ── theme ──────────────────────────────────────────────────────────────── */
+$("#themeBtn").addEventListener("click", () => {
+  const dark = document.documentElement.classList.toggle("dark");
+  document.documentElement.classList.toggle("light", !dark);
+  $("#themeIcon").setAttribute("href", dark ? "#i-sun" : "#i-moon");
+});
+
+/* ── cloud chip cycles through the real backup states ───────────────────── */
+const cloudStates = [
+  ["#i-cloud","Backed up",""],
+  ["#i-cloud-up","Changes not backed up","attn"],
+  ["#i-cloud-off","Local only",""],
+];
+let ci = 0;
+$("#cloudChip").addEventListener("click", () => {
+  ci = (ci+1) % cloudStates.length;
+  const [icon,label,cls] = cloudStates[ci];
+  $("#cloudChip").className = "cloud " + cls;
+  $("#cloudChip").querySelector("use").setAttribute("href", icon);
+  $("#cloudLbl").textContent = label;
+});
+
+/* ── metadata disclosure: say what leaks, don't pretend it doesn't ──────── */
+$("#leakBtn").addEventListener("click", () => {
+  const d = $("#leakDetail");
+  d.style.display = d.style.display === "none" ? "block" : "none";
+});
+
+/* ── annotations ────────────────────────────────────────────────────────── */
+$$("[data-pin]").forEach(p => { if(p.dataset.pin==="flip") p.classList.add("flip"); });
+$("#annotBtn").addEventListener("click", e => {
+  const on = document.body.classList.toggle("annotated");
+  e.currentTarget.classList.toggle("on", on);
+});
+
+/* ── responsive nav ─────────────────────────────────────────────────────── */
+const navBtn = $("#navToggle");
+function syncNav(){ navBtn.style.display = innerWidth <= 880 ? "grid" : "none"; }
+navBtn.addEventListener("click", () => document.body.classList.toggle("nav-open"));
+addEventListener("resize", syncNav); syncNav();
+
+/* start annotated so the rationale is visible on first open */
+document.body.classList.add("annotated");
+$("#annotBtn").classList.add("on");
+show("note");
+</script>
+</body>
+</html>
