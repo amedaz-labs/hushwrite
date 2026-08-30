@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-const PassphraseModal = ({ mode, onConfirm, onCancel }) => {
+const PassphraseModal = ({ mode, folderName, onConfirm, onCancel }) => {
   const [value, setValue] = useState("");
   const inputRef = useRef(null);
 
@@ -37,12 +37,18 @@ const PassphraseModal = ({ mode, onConfirm, onCancel }) => {
           </div>
           <DialogHeader>
             <DialogTitle>
-              {isEncrypt ? "Encrypt note" : "Decrypt note"}
+              {isEncrypt
+                ? "Encrypt note"
+                : folderName
+                  ? `Unlock “${folderName}”`
+                  : "Decrypt note"}
             </DialogTitle>
             <DialogDescription>
               {isEncrypt
                 ? "Choose a passphrase to encrypt and save this note. A new passphrase will overwrite the previous one."
-                : "Enter the passphrase used when this note was saved."}
+                : folderName
+                  ? "One passphrase opens every note in this folder."
+                  : "Enter the passphrase used when this note was saved."}
             </DialogDescription>
           </DialogHeader>
         </div>

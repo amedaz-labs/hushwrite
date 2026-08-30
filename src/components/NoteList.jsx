@@ -7,9 +7,27 @@ import {
   decryptHwrite,
   hwriteEnvelopeToBytes,
   rehydrateInlineImages,
+  isFolderBundle,
+  parseFolderPayload,
+  serializeFolder,
+  downloadHwrite,
 } from "../js/hwrite";
 import HwriteImportDialog from "./HwriteImportDialog";
-import { useVault } from "@/lib/vault";
+import HwriteFolderImportDialog from "./HwriteFolderImportDialog";
+import HwriteExportDialog from "./HwriteExportDialog";
+import FolderRow from "./FolderRow";
+import FolderFormDialog from "./FolderFormDialog";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { useFolders } from "@/lib/folders";
 import { decryptContent, encryptContent } from "../js/crypto";
 import { saveNote, getAllNotes } from "../js/db";
 
@@ -39,6 +57,60 @@ const formatTimestamp = (ts) => {
   });
 };
 
+const NoteRow = ({ note, isActive, title, unlocked, indented, onSelect }) => {
+  const displayTitle =
+    title && title.trim()
+      ? title
+      : isActive
+        ? "Untitled note"
+        : "Encrypted note";
+  const encrypted = !title && !isActive;
+
+  return (
+    <button
+      onClick={onSelect}
+      aria-current={isActive ? "true" : undefined}
+      className={cn(
+        "group relative block w-full cursor-pointer overflow-hidden border-l-[3px] py-2.5 pr-3 text-left transition-all duration-200",
+        indented ? "pl-9" : "pl-3",
+        isActive
+          ? "border-vault-primary bg-gradient-to-r from-vault-primary/12 via-vault-primary/6 to-transparent"
+          : "border-transparent hover:bg-surface-container",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <Icon
+          name={unlocked ? "description" : "lock"}
+          className={cn(
+            "shrink-0 text-base",
+            isActive ? "text-vault-primary" : "text-outline/70",
+          )}
+        />
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-sm",
+            isActive
+              ? "font-semibold text-vault-primary"
+              : encrypted
+                ? "text-on-surface-variant"
+                : "text-on-surface",
+          )}
+        >
+          {displayTitle}
+        </span>
+        <span
+          className={cn(
+            "shrink-0 text-[10px] tabular-nums",
+            isActive ? "text-vault-primary/70" : "text-outline",
+          )}
+        >
+          {formatTimestamp(note.updatedAt || note.createdAt)}
+        </span>
+      </div>
+    </button>
+  );
+};
+
 const NoteList = ({
   open = false,
   notes,
@@ -49,144 +121,211 @@ const NoteList = ({
   onImportNote,
   onNotesChanged,
   onNewNote,
-  onSectionChange,
-  activeSection = "notes",
+  activeFolderId = null,
+  onActiveFolderChange,
   isComposingNew = false,
   isNoteUnlocked = false,
 }) => {
   const fileInputRef = useRef(null);
   const [importState, setImportState] = useState(null);
+  const [folderImportState, setFolderImportState] = useState(null);
+  const [exportFolder, setExportFolder] = useState(null);
   const [dragActive, setDragActive] = useState(false);
-  const vault = useVault();
-  const [gatePassphrase, setGatePassphrase] = useState("");
-  const [gateConfirm, setGateConfirm] = useState("");
-  const [gateError, setGateError] = useState(null);
-  const [gateBusy, setGateBusy] = useState(false);
-  const [vaultTitles, setVaultTitles] = useState({});
-  // Holds an unencrypted .hwrite import that's waiting for the vault to be
-  // unlocked. Once `isVaultUnlocked` flips true, the effect below encrypts
-  // and saves it automatically.
-  const [pendingVaultImport, setPendingVaultImport] = useState(null);
+  const [expanded, setExpanded] = useState([]);
+  const [folderTitles, setFolderTitles] = useState({});
+  const [dialog, setDialog] = useState(null); // { mode, folderId }
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState(null);
+  // An import whose destination folder isn't unlocked yet. Flushed by the
+  // effect below the moment that folder's key becomes available.
+  const [pendingImport, setPendingImport] = useState(null);
+  const claimedImportRef = useRef(null);
 
-  const inVault = activeSection === "vault";
-  const showGate = inVault && !vault.isVaultUnlocked;
+  const folders = useFolders();
+  const {
+    folders: folderList,
+    unlockedIds,
+    lockEpoch,
+    isFolderUnlocked,
+    getFolderKey,
+  } = folders;
 
-  // Lock the vault whenever the user navigates away from the Vault section.
-  // Re-entering the section then re-prompts for the passphrase.
-  useEffect(() => {
-    if (!inVault && vault.isVaultUnlocked) {
-      vault.lockVault();
+  const activeFolder = folderList.find((f) => f.id === activeFolderId) || null;
+
+  const byFolder = useMemo(() => {
+    const ts = (n) => new Date(n.updatedAt || n.createdAt || 0).getTime();
+    const map = new Map();
+    for (const note of notes) {
+      const key = note.folderId || null;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(note);
     }
-  }, [inVault, vault]);
+    for (const list of map.values()) list.sort((a, b) => ts(b) - ts(a));
+    return map;
+  }, [notes]);
 
-  // Clear decrypted vault titles whenever the vault locks.
-  useEffect(() => {
-    if (!vault.isVaultUnlocked) setVaultTitles({});
-  }, [vault.isVaultUnlocked]);
+  const rootNotes = byFolder.get(null) || [];
 
-  // When the vault is unlocked, decrypt every vault note's title so the
-  // sidebar shows real labels instead of "Encrypted note".
+  // A locked folder can't take new notes — drop the "new notes go here"
+  // pointer as soon as its key goes away.
   useEffect(() => {
-    if (!vault.isVaultUnlocked || !vault.vaultKey) return;
+    if (activeFolderId && !isFolderUnlocked(activeFolderId)) {
+      onActiveFolderChange?.(null);
+    }
+  }, [activeFolderId, isFolderUnlocked, onActiveFolderChange]);
+
+  // Forget decrypted titles for any folder that locked.
+  useEffect(() => {
+    setFolderTitles((prev) => {
+      const next = {};
+      let changed = false;
+      for (const [id, t] of Object.entries(prev)) {
+        const note = notes.find((n) => n.id === id);
+        if (note && (!note.folderId || unlockedIds.includes(note.folderId))) {
+          next[id] = t;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [unlockedIds, notes]);
+
+  // Decrypt the titles of every note in every unlocked folder so the tree
+  // shows real labels instead of "Encrypted note".
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       const pending = notes.filter(
         (n) =>
-          n.vault === true &&
+          n.folderId &&
+          unlockedIds.includes(n.folderId) &&
           n.titleCiphertext &&
           n.titleIv &&
-          !vaultTitles[n.id],
+          // `undefined`, not falsy: an empty decrypted title is still done, and
+          // a truthiness test would re-decrypt it on every pass forever.
+          folderTitles[n.id] === undefined,
       );
       if (pending.length === 0) return;
       const next = {};
       for (const n of pending) {
+        const entry = getFolderKey(n.folderId);
+        if (!entry) continue;
         try {
-          const plain = await decryptContent(
+          next[n.id] = await decryptContent(
             toBytes(n.titleCiphertext),
-            vault.vaultKey,
+            entry.key,
             toBytes(n.titleIv),
           );
-          next[n.id] = plain;
         } catch {
-          /* skip notes that fail (different key, tampered, etc.) */
+          /* skip notes that fail (tampered, or saved under an older key) */
         }
       }
       if (!cancelled && Object.keys(next).length) {
-        setVaultTitles((prev) => ({ ...prev, ...next }));
+        setFolderTitles((prev) => ({ ...prev, ...next }));
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [notes, vault.isVaultUnlocked, vault.vaultKey, vaultTitles]);
+  }, [notes, unlockedIds, getFolderKey, folderTitles]);
 
-  // Flush any pending vault import the moment the vault becomes unlocked.
+  // Flush a deferred import once its destination folder is unlocked.
   useEffect(() => {
-    if (!pendingVaultImport) return;
-    if (!vault.isVaultUnlocked || !vault.vaultKey) return;
-    let cancelled = false;
+    if (!pendingImport) return;
+    const entry = getFolderKey(pendingImport.folderId);
+    if (!entry) return;
+    const pending = pendingImport;
+    // Claim it before the first await: a re-run (another folder unlocking
+    // mid-flight) must not save a second copy. A ref, because the state clear
+    // below only lands after the save has already started. The claim is the
+    // opaque token, never the object — the ref outlives the work, and the
+    // object carries decrypted markdown that must not survive a lock.
+    if (claimedImportRef.current === pending.token) return;
+    claimedImportRef.current = pending.token;
     (async () => {
-      const pending = pendingVaultImport;
       try {
         const now = new Date().toISOString();
         const { ciphertext, iv } = await encryptContent(
           pending.markdown,
-          vault.vaultKey,
+          entry.key,
         );
         const { ciphertext: titleCiphertext, iv: titleIv } =
-          await encryptContent(pending.title, vault.vaultKey);
+          await encryptContent(pending.title, entry.key);
+        // A lock during the encryption window nulls the claim and tells the
+        // user the import was discarded. Honour that instead of writing a note
+        // they were told they'd have to re-import.
+        if (claimedImportRef.current !== pending.token) return;
         await saveNote({
           id: uuid4(),
           ciphertext,
           iv,
-          salt: vault.vaultSalt,
+          salt: entry.salt,
           title: "",
           titleCiphertext,
           titleIv,
           imageIds: pending.imageIds || [],
-          vault: true,
+          folderId: pending.folderId,
           createdAt: pending.createdAt || now,
           updatedAt: now,
         });
-        if (cancelled) return;
-        setPendingVaultImport(null);
+        claimedImportRef.current = null;
+        setPendingImport(null);
         onNotesChanged?.(await getAllNotes());
-        toast.success(`"${pending.title}" added to your vault`);
+        toast.success(`"${pending.title}" added`);
       } catch (err) {
-        if (!cancelled) {
-          setPendingVaultImport(null);
-          toast.error(err.message || "Could not import to vault");
-        }
+        claimedImportRef.current = null;
+        setPendingImport(null);
+        toast.error(err.message || "Could not import");
       }
     })();
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingVaultImport, vault.isVaultUnlocked, vault.vaultKey]);
+  }, [pendingImport, unlockedIds]);
 
-  const handleGateSubmit = async (e) => {
-    e.preventDefault();
-    if (!gatePassphrase) return;
-    setGateBusy(true);
-    setGateError(null);
+  // A deferred import holds decrypted markdown. Locking means no plaintext in
+  // memory — including this. The clear is synchronous on purpose: deferring it
+  // would leave the markdown alive past the lock.
+  useEffect(() => {
+    if (!lockEpoch || !pendingImport) return;
+    claimedImportRef.current = null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPendingImport(null);
+    toast("Locked — the pending import was discarded", { icon: "🔒" });
+    // Only the lock should trigger this — a pendingImport arriving later is
+    // not something the previous lock has any say over.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lockEpoch]);
+
+  const toggleFolder = (folder) => {
+    setExpanded((prev) =>
+      prev.includes(folder.id)
+        ? prev.filter((id) => id !== folder.id)
+        : [...prev, folder.id],
+    );
+    if (expanded.includes(folder.id)) {
+      if (activeFolderId === folder.id) onActiveFolderChange?.(null);
+    } else if (isFolderUnlocked(folder.id)) {
+      onActiveFolderChange?.(folder.id);
+    }
+  };
+
+  const handleUnlockFolder = async (folder, passphrase) => {
+    await folders.unlockFolder(folder.id, passphrase);
+    setExpanded((prev) =>
+      prev.includes(folder.id) ? prev : [...prev, folder.id],
+    );
+    onActiveFolderChange?.(folder.id);
+  };
+
+  const confirmDeleteFolder = async () => {
+    const folder = deleteFolderTarget;
+    setDeleteFolderTarget(null);
     try {
-      if (vault.hasVault) {
-        await vault.unlockVault(gatePassphrase);
-      } else {
-        if (gatePassphrase !== gateConfirm) {
-          setGateError("Passphrases don't match.");
-          setGateBusy(false);
-          return;
-        }
-        await vault.createVault(gatePassphrase);
-      }
-      setGatePassphrase("");
-      setGateConfirm("");
+      await folders.removeFolder(folder.id);
+      if (activeFolderId === folder.id) onActiveFolderChange?.(null);
+      onNotesChanged?.(await getAllNotes());
+      toast.success(`Deleted "${folder.name}"`);
     } catch (err) {
-      setGateError(err.message || "Could not unlock vault.");
-    } finally {
-      setGateBusy(false);
+      toast.error(err.message || "Could not delete folder");
     }
   };
 
@@ -195,10 +334,111 @@ const NoteList = ({
     try {
       const text = await file.text();
       const parsed = await parseHwrite(text);
-      setImportState({ parsed, fileSize: file.size });
+      // A folder bundle takes a different route: it becomes a whole folder,
+      // not a note that needs a destination.
+      if (isFolderBundle(parsed)) {
+        setFolderImportState({ parsed, fileSize: file.size });
+      } else {
+        setImportState({ parsed, fileSize: file.size });
+      }
     } catch (err) {
       toast.error(err.message || "Could not read .hwrite file");
     }
+  };
+
+  // Decrypt every note in the folder with the key already in memory, then seal
+  // the whole set into one portable file.
+  const handleExportFolder = async ({ encrypted, passphrase }) => {
+    const folder = exportFolder;
+    setExportFolder(null);
+    const entry = getFolderKey(folder.id);
+    if (!entry) return toast.error("Unlock the folder first.");
+
+    const toastId = toast.loading("Preparing export…");
+    try {
+      const contained = byFolder.get(folder.id) || [];
+      const decrypted = [];
+      for (const note of contained) {
+        const markdown = await decryptContent(
+          toBytes(note.ciphertext),
+          entry.key,
+          toBytes(note.iv),
+        );
+        let title = note.title || "Untitled";
+        if (note.titleCiphertext && note.titleIv) {
+          title = await decryptContent(
+            toBytes(note.titleCiphertext),
+            entry.key,
+            toBytes(note.titleIv),
+          );
+        }
+        decrypted.push({
+          title,
+          markdown,
+          createdAt: note.createdAt,
+          modifiedAt: note.updatedAt,
+        });
+      }
+
+      const blob = await serializeFolder(
+        { name: folder.name, notes: decrypted },
+        { encrypted, passphrase },
+      );
+      const filename = downloadHwrite(blob, folder.name);
+      toast.success(
+        `${decrypted.length} note${decrypted.length === 1 ? "" : "s"} → ${filename}`,
+        { id: toastId },
+      );
+    } catch (err) {
+      toast.error(err.message || "Export failed", { id: toastId });
+    }
+  };
+
+  const handleImportFolder = async ({ name, passphrase }) => {
+    const { parsed } = folderImportState;
+
+    let raw;
+    try {
+      raw = await decryptHwrite(parsed, parsed.encrypted ? passphrase : undefined);
+    } catch {
+      throw new Error("Wrong passphrase, or the file is corrupted.");
+    }
+    const incoming = parseFolderPayload(raw);
+    if (incoming.length === 0) {
+      throw new Error("That folder file has no notes in it.");
+    }
+
+    const { folder, key, salt } = await folders.createFolder(name, passphrase);
+    const now = new Date().toISOString();
+    for (const note of incoming) {
+      const { markdown, imageIds } = await rehydrateInlineImages(note.markdown);
+      const { ciphertext, iv } = await encryptContent(markdown, key);
+      const { ciphertext: titleCiphertext, iv: titleIv } = await encryptContent(
+        note.title,
+        key,
+      );
+      await saveNote({
+        id: uuid4(),
+        ciphertext,
+        iv,
+        salt,
+        title: "",
+        titleCiphertext,
+        titleIv,
+        imageIds,
+        folderId: folder.id,
+        createdAt: note.createdAt || now,
+        updatedAt: note.modifiedAt || now,
+      });
+    }
+
+    setFolderImportState(null);
+    setExpanded((prev) => [...prev, folder.id]);
+    onActiveFolderChange?.(folder.id);
+    onNotesChanged?.(await getAllNotes());
+    toast.success(
+      `Imported "${folder.name}" · ${incoming.length} note${incoming.length === 1 ? "" : "s"}`,
+    );
   };
 
   const onFilePick = (e) => {
@@ -219,28 +459,68 @@ const NoteList = ({
     handleHwriteFile(file);
   };
 
-  // Resolve the best-known plaintext title for a note. For the active
-  // note we prefer the live editor title, but fall back to the session
-  // cache when it's empty (the editor title is temporarily blanked while
-  // we wait for the user to re-enter the passphrase on a locked note —
-  // the sidebar label should stay stable across that transition).
+  // Resolve the best-known plaintext title for a note. For the active note we
+  // prefer the live editor title, but fall back to the session cache when it's
+  // empty (the editor title is blanked while we wait for a passphrase — the
+  // sidebar label should stay stable across that transition).
   const resolveTitle = (note) => {
-    if (note.id === currentId) {
-      return (currentTitle && currentTitle.trim())
-        ? currentTitle
-        : titleCache[note.id] || vaultTitles[note.id] || note.title || null;
+    if (note.id === currentId && currentTitle && currentTitle.trim()) {
+      return currentTitle;
     }
-    return titleCache[note.id] || vaultTitles[note.id] || note.title || null;
+    return titleCache[note.id] || folderTitles[note.id] || note.title || null;
   };
 
-  const scoped = useMemo(() => {
-    const ts = (n) => new Date(n.updatedAt || n.createdAt || 0).getTime();
-    return notes
-      .filter((n) => (inVault ? n.vault === true : n.vault !== true))
-      .sort((a, b) => ts(b) - ts(a)); // most recently edited first
-  }, [notes, inVault]);
+  const renderNote = (note, indented) => (
+    <NoteRow
+      key={note.id}
+      note={note}
+      indented={indented}
+      isActive={note.id === currentId}
+      title={resolveTitle(note)}
+      unlocked={
+        note.folderId
+          ? isFolderUnlocked(note.folderId)
+          : note.id === currentId && isNoteUnlocked
+      }
+      onSelect={() => {
+        onActiveFolderChange?.(note.folderId || null);
+        onSelectNote(note);
+      }}
+    />
+  );
 
-  const filtered = scoped;
+  const dialogFolder = dialog
+    ? folderList.find((f) => f.id === dialog.folderId)
+    : null;
+
+  const deleteFolderCount = deleteFolderTarget
+    ? (byFolder.get(deleteFolderTarget.id) || []).length
+    : 0;
+
+  const submitDialog = async ({ name, passphrase }) => {
+    if (dialog.mode === "create") {
+      const { folder } = await folders.createFolder(name, passphrase);
+      setExpanded((prev) => [...prev, folder.id]);
+      onActiveFolderChange?.(folder.id);
+      toast.success(`Folder "${folder.name}" created`);
+      return;
+    }
+    if (dialog.mode === "rename") {
+      await folders.renameFolder(dialog.folderId, name);
+      toast.success("Folder renamed");
+      return;
+    }
+    const count = await folders.changeFolderPassphrase(
+      dialog.folderId,
+      passphrase,
+    );
+    onNotesChanged?.(await getAllNotes());
+    toast.success(
+      count
+        ? `Passphrase updated · ${count} note${count === 1 ? "" : "s"} re-encrypted`
+        : "Passphrase updated",
+    );
+  };
 
   return (
     <section
@@ -259,285 +539,122 @@ const NoteList = ({
         dragActive && "ring-2 ring-vault-primary/60 ring-inset",
       )}
     >
-      <div className="border-b border-outline-variant/10 p-4">
-        <div className="mb-4 flex items-center gap-3 px-1">
-          <img src="/panda-192.png" alt="Hushwrite" className="h-9 w-9 rounded-full object-cover" />
-          <div className="min-w-0">
-            <h2 className="truncate text-sm font-bold leading-none text-vault-primary">
-              Hushwrite
-            </h2>
-            <p className="mt-1 text-[10px] uppercase tracking-widest text-vault-primary/60">
-              Secure Session
-            </p>
-          </div>
+      <div className="border-b border-outline-variant/10 p-3">
+        <div className="mb-2.5 flex items-center justify-between px-1">
+          <h2 className="text-[11px] font-semibold uppercase tracking-widest text-outline">
+            Notes
+          </h2>
+          <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-semibold tabular-nums text-on-surface-variant">
+            {notes.length}
+          </span>
         </div>
 
-        <button
-          onClick={onNewNote}
-          className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg bg-surface-container-high px-3 py-2 text-sm font-medium text-vault-primary transition-all hover:bg-surface-container-highest"
-        >
-          <Icon name="add" className="text-base" />
-          New Note
-        </button>
-
-        <div className="flex gap-1 rounded-lg bg-surface-container p-1">
-          {[
-            { id: "notes", label: "Notes", icon: "description" },
-            { id: "vault", label: "Vault", icon: "enhanced_encryption" },
-          ].map((s) => {
-            const isActive = s.id === activeSection;
-            return (
-              <button
-                key={s.id}
-                onClick={() => onSectionChange?.(s.id)}
-                className={cn(
-                  "flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-all md:min-h-0",
-                  isActive
-                    ? "bg-surface-container-high text-vault-primary"
-                    : "text-outline hover:text-on-surface",
-                )}
-              >
-                <Icon name={s.icon} className="text-sm" />
-                {s.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {inVault && vault.isVaultUnlocked && (
+        <div className="grid grid-cols-2 gap-2">
           <button
-            onClick={() => vault.lockVault()}
-            className="mt-3 flex min-h-[44px] w-full items-center justify-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium uppercase tracking-wider text-outline transition-colors hover:text-on-surface md:min-h-0"
-            title="Lock vault"
+            onClick={onNewNote}
+            className="group flex flex-col items-center gap-1.5 rounded-xl border border-vault-primary/25 bg-primary-container/10 px-2 py-3 transition-all hover:border-vault-primary/50 hover:bg-primary-container/20 active:scale-[0.98]"
           >
-            <Icon name="lock" className="text-sm" />
-            Lock vault
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-vault-primary/15 text-vault-primary">
+              <Icon name="add" className="text-[18px]" />
+            </span>
+            <span className="text-xs font-semibold text-vault-primary">
+              New note
+            </span>
+            <span className="w-full truncate text-center text-[10px] leading-tight text-vault-primary/60">
+              {activeFolder ? `in ${activeFolder.name}` : "own passphrase"}
+            </span>
           </button>
-        )}
 
-        {!inVault && (
-          <>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="mt-3 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-surface-container py-2 text-xs font-medium text-outline transition-all hover:bg-surface-container-high hover:text-on-surface md:min-h-0"
-            >
-              <Icon name="file_upload" className="text-sm" />
-              Import .hwrite
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".hwrite,application/json"
-              hidden
-              onChange={onFilePick}
-            />
-          </>
-        )}
+          <button
+            onClick={() => setDialog({ mode: "create" })}
+            className="group flex flex-col items-center gap-1.5 rounded-xl border border-outline-variant/20 bg-surface-container px-2 py-3 transition-all hover:border-outline-variant/40 hover:bg-surface-container-high active:scale-[0.98]"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-container-highest text-on-surface-variant">
+              <Icon name="create_new_folder" className="text-[18px]" />
+            </span>
+            <span className="text-xs font-semibold text-on-surface">
+              New folder
+            </span>
+            <span className="w-full truncate text-center text-[10px] leading-tight text-outline">
+              shared passphrase
+            </span>
+          </button>
+        </div>
       </div>
 
-      {showGate ? (
-        <form
-          onSubmit={handleGateSubmit}
-          className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center"
-        >
-          {pendingVaultImport && (
-            <div className="w-full rounded-lg border border-vault-primary/30 bg-primary-container/10 p-3 text-left">
-              <div className="flex items-start gap-2">
-                <Icon name="file_download" className="mt-0.5 text-base text-vault-primary" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-vault-primary">
-                    Import waiting
-                  </p>
-                  <p className="mt-0.5 truncate text-xs text-on-surface-variant">
-                    "{pendingVaultImport.title}" will be added once the vault is{" "}
-                    {vault.hasVault ? "unlocked" : "created"}.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPendingVaultImport(null);
-                      toast("Import cancelled");
-                    }}
-                    className="mt-1 inline-flex min-h-[44px] items-center text-[10px] font-medium uppercase tracking-wider text-outline transition-colors hover:text-error md:min-h-0"
-                  >
-                    Cancel import
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-container/20 ring-1 ring-vault-primary/30">
-            <Icon name="enhanced_encryption" className="text-xl text-vault-primary" />
-          </div>
-          <div className="space-y-1">
-            <h3 className="text-sm font-semibold text-on-surface">
-              {vault.hasVault ? "Unlock vault" : "Create vault"}
-            </h3>
-            <p className="text-xs text-on-surface-variant">
-              {vault.hasVault
-                ? "One passphrase unlocks every note inside."
-                : "Choose one passphrase. It unlocks every note you save in this vault."}
-            </p>
-          </div>
-          <input
-            type="password"
-            autoFocus
-            value={gatePassphrase}
-            onChange={(e) => setGatePassphrase(e.target.value)}
-            placeholder="Vault passphrase"
-            className={cn(
-              "w-full rounded-lg border bg-surface-container px-3 py-2 text-sm text-on-surface placeholder-outline focus:outline-none",
-              gateError
-                ? "border-error/60 focus:border-error"
-                : "border-outline-variant/30 focus:border-vault-primary/60",
-            )}
-          />
-          {!vault.hasVault && (
-            <input
-              type="password"
-              value={gateConfirm}
-              onChange={(e) => setGateConfirm(e.target.value)}
-              placeholder="Confirm passphrase"
-              className="w-full rounded-lg border border-outline-variant/30 bg-surface-container px-3 py-2 text-sm text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none"
-            />
-          )}
-          {gateError && (
-            <p className="text-xs text-error">{gateError}</p>
-          )}
-          <button
-            type="submit"
-            disabled={gateBusy || !gatePassphrase}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-vault-primary px-4 py-2 text-sm font-medium text-on-primary-fixed transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Icon name="lock_open" className="text-sm" />
-            {vault.hasVault ? "Unlock vault" : "Create vault"}
-          </button>
-        </form>
-      ) : (
       <div className="flex-1 overflow-y-auto">
         {isComposingNew && !currentId && (
-          <div className="block w-full border-l-2 border-vault-primary bg-surface-container-high/50 p-4 text-left">
-            <div className="mb-1 flex items-start justify-between gap-2">
+          <div className="block w-full border-l-2 border-vault-primary bg-surface-container-high/50 p-3 text-left">
+            <div className="flex items-center justify-between gap-2">
               <h3 className="truncate text-sm font-semibold text-on-surface">
                 {currentTitle?.trim() || "Untitled"}
               </h3>
-              <span className="whitespace-nowrap text-[10px] text-outline">
-                Now
-              </span>
-            </div>
-            <div className="flex gap-2">
               <span className="rounded bg-primary-container/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-vault-primary">
                 Draft
               </span>
             </div>
           </div>
         )}
-        {filtered.length === 0 && !isComposingNew && (
-          <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
-            <Icon name="description" className="text-2xl text-outline/60" />
-            <p className="text-xs text-outline">No saved notes yet</p>
-          </div>
-        )}
 
-        {filtered.map((note) => {
-          const isActive = note.id === currentId;
-          const resolved = resolveTitle(note);
-          const displayTitle =
-            resolved && resolved.trim()
-              ? resolved
-              : isActive
-                ? "Untitled note"
-                : "Encrypted note";
-          const isEncrypted = !resolved && !isActive;
-          const preview = isEncrypted ? "Locked — unlock to view contents" : "";
-          const statusLabel =
-            inVault && vault.isVaultUnlocked
-              ? isActive
-                ? "Open"
-                : "Vault"
-              : isActive
-                ? isNoteUnlocked
-                  ? "Open"
-                  : "Locked"
-                : isEncrypted
-                  ? "Encrypted"
-                  : "Locked";
-          const statusActive =
-            (isActive && isNoteUnlocked) || (inVault && vault.isVaultUnlocked);
+        {folderList.map((folder) => {
+          const contained = byFolder.get(folder.id) || [];
           return (
-            <button
-              key={note.id}
-              onClick={() => onSelectNote(note)}
-              aria-current={isActive ? "true" : undefined}
-              className={cn(
-                "group relative block w-full cursor-pointer overflow-hidden border-l-[3px] p-4 text-left transition-all duration-200",
-                isActive
-                  ? "border-vault-primary bg-gradient-to-r from-vault-primary/12 via-vault-primary/6 to-transparent shadow-[inset_0_0_0_1px_var(--md-sys-color-vault-primary,rgba(124,77,255,0.2))]"
-                  : "border-transparent hover:bg-surface-container",
-              )}
+            <FolderRow
+              key={folder.id}
+              folder={folder}
+              count={contained.length}
+              unlocked={isFolderUnlocked(folder.id)}
+              expanded={expanded.includes(folder.id)}
+              isActive={activeFolderId === folder.id}
+              onToggle={() => toggleFolder(folder)}
+              onUnlock={(pw) => handleUnlockFolder(folder, pw)}
+              onLock={() => folders.lockFolder(folder.id)}
+              onRename={() => setDialog({ mode: "rename", folderId: folder.id })}
+              onChangePassphrase={() =>
+                setDialog({ mode: "passphrase", folderId: folder.id })
+              }
+              onExport={() => setExportFolder(folder)}
+              onDelete={() => setDeleteFolderTarget(folder)}
             >
-              {isActive && (
-                <span
-                  aria-hidden
-                  className="absolute left-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-r bg-vault-primary shadow-[0_0_12px_rgba(124,77,255,0.6)]"
-                />
-              )}
-              <div className="mb-1 flex items-start justify-between gap-2">
-                <h3
-                  className={cn(
-                    "truncate text-sm font-semibold transition-colors",
-                    isActive ? "text-vault-primary" : "text-on-surface",
-                  )}
-                >
-                  {displayTitle}
-                </h3>
-                <span
-                  className={cn(
-                    "whitespace-nowrap text-[10px] tabular-nums",
-                    isActive ? "text-vault-primary/70" : "text-outline",
-                  )}
-                >
-                  {formatTimestamp(note.updatedAt || note.createdAt)}
-                </span>
-              </div>
-              {preview && (
-                <p className="mb-2 line-clamp-2 text-xs leading-relaxed text-on-surface-variant">
-                  {preview}
+              {contained.length === 0 ? (
+                <p className="px-3 py-2 pl-9 text-[11px] text-outline">
+                  Empty folder
                 </p>
+              ) : (
+                contained.map((note) => renderNote(note, true))
               )}
-              <div className="flex items-center gap-2">
-                <span
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
-                    statusActive
-                      ? "bg-vault-primary/15 text-vault-primary ring-1 ring-vault-primary/30"
-                      : isActive
-                        ? "bg-surface-container-highest text-outline"
-                        : "bg-surface-container-highest text-on-surface-variant",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "inline-block h-1.5 w-1.5 rounded-full",
-                      statusActive
-                        ? "bg-vault-primary shadow-[0_0_6px_rgba(124,77,255,0.8)]"
-                        : "bg-outline/60",
-                    )}
-                  />
-                  {statusLabel}
-                </span>
-                {isActive && isNoteUnlocked && (
-                  <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-vault-primary/70">
-                    <Icon name="edit" className="text-[12px]" />
-                    Editing
-                  </span>
-                )}
-              </div>
-            </button>
+            </FolderRow>
           );
         })}
+
+        {rootNotes.map((note) => renderNote(note, false))}
+
+        {folderList.length === 0 &&
+          rootNotes.length === 0 &&
+          !isComposingNew && (
+            <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
+              <Icon name="description" className="text-2xl text-outline/60" />
+              <p className="text-xs text-outline">No notes yet</p>
+            </div>
+          )}
       </div>
-      )}
+
+      <div className="border-t border-outline-variant/10 p-3">
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg text-xs font-medium text-outline transition-colors hover:text-on-surface md:min-h-0"
+        >
+          <Icon name="file_upload" className="text-base" />
+          Import .hwrite
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".hwrite,application/json"
+          hidden
+          onChange={onFilePick}
+        />
+      </div>
 
       {dragActive && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-surface/60 text-xs font-medium text-vault-primary backdrop-blur-sm">
@@ -545,18 +662,76 @@ const NoteList = ({
         </div>
       )}
 
+      {dialog && (
+        <FolderFormDialog
+          key={`${dialog.mode}-${dialog.folderId || "new"}`}
+          open
+          mode={dialog.mode}
+          initialName={dialog.mode === "rename" ? dialogFolder?.name || "" : ""}
+          folderName={dialogFolder?.name || ""}
+          onSubmit={submitDialog}
+          onOpenChange={(v) => !v && setDialog(null)}
+        />
+      )}
+
+      {deleteFolderTarget && (
+        <AlertDialog
+          open
+          onOpenChange={(v) => !v && setDeleteFolderTarget(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this folder?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {deleteFolderCount
+                  ? `Delete "${deleteFolderTarget.name}" and its ${deleteFolderCount} note${deleteFolderCount === 1 ? "" : "s"}? This can't be undone.`
+                  : `Delete the empty folder "${deleteFolderTarget.name}"?`}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setDeleteFolderTarget(null)}>
+                Cancel
+              </AlertDialogCancel>
+              <Button variant="destructive" onClick={confirmDeleteFolder}>
+                Delete
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+
+      {exportFolder && (
+        <HwriteExportDialog
+          folderName={exportFolder.name}
+          noteCount={(byFolder.get(exportFolder.id) || []).length}
+          onConfirm={handleExportFolder}
+          onCancel={() => setExportFolder(null)}
+        />
+      )}
+
+      {folderImportState && (
+        <HwriteFolderImportDialog
+          parsed={folderImportState.parsed}
+          fileSize={folderImportState.fileSize}
+          existingNames={folderList.map((f) => f.name)}
+          onConfirm={handleImportFolder}
+          onCancel={() => setFolderImportState(null)}
+        />
+      )}
+
       {importState && (
         <HwriteImportDialog
           parsed={importState.parsed}
           fileSize={importState.fileSize}
-          hasVault={vault.hasVault}
+          folders={folderList}
+          isFolderUnlocked={isFolderUnlocked}
           onConfirm={async ({ destination, passphrase }) => {
             const { parsed } = importState;
             const titleText = parsed.title || "Untitled";
 
-            if (destination === "notes") {
+            if (destination === "root") {
               if (parsed.encrypted) {
-                // Save the encrypted envelope as-is. The user supplies the
+                // Keep the encrypted envelope as-is. The user supplies the
                 // file's passphrase the first time they open it.
                 const { ciphertext, iv, salt } = hwriteEnvelopeToBytes(parsed);
                 const now = new Date().toISOString();
@@ -567,36 +742,35 @@ const NoteList = ({
                   salt,
                   title: parsed.title,
                   imageIds: [],
-                  vault: false,
+                  folderId: null,
                   createdAt: parsed.created || now,
                   updatedAt: parsed.modified || now,
                 });
                 setImportState(null);
                 onNotesChanged?.(await getAllNotes());
-                onSectionChange?.("notes");
                 toast.success(`Imported "${parsed.title}" — locked until opened`);
               } else {
-                // Plaintext to notes: load into editor as a draft so the user
-                // can save it under their own passphrase.
+                // Plaintext at the root: load into the editor as a draft so
+                // the user can save it under their own passphrase.
                 const raw = await decryptHwrite(parsed, undefined);
                 const result = await rehydrateInlineImages(raw);
-                const markdown = result.markdown || "";
                 setImportState(null);
-                onSectionChange?.("notes");
-                onImportNote?.({ markdown, title: titleText });
+                onActiveFolderChange?.(null);
+                onImportNote?.({
+                  markdown: result.markdown || "",
+                  title: titleText,
+                });
               }
               return;
             }
 
-            // destination === "vault" — always re-encrypt under the vault key.
+            // Into a folder — always re-encrypt under the folder key.
             let raw;
             if (parsed.encrypted) {
               try {
                 raw = await decryptHwrite(parsed, passphrase);
               } catch {
-                throw new Error(
-                  "Wrong passphrase, or the file is corrupted.",
-                );
+                throw new Error("Wrong passphrase, or the file is corrupted.");
               }
             } else {
               raw = await decryptHwrite(parsed, undefined);
@@ -605,52 +779,53 @@ const NoteList = ({
             const markdown = result.markdown || "";
             const imageIds = result.imageIds || [];
 
-            if (!vault.isVaultUnlocked) {
-              // Defer until the user unlocks/creates the vault. The effect
-              // above flushes the pending import once vaultKey is available.
-              setPendingVaultImport({
+            const entry = getFolderKey(destination);
+            if (!entry) {
+              // Defer until the user unlocks that folder; the effect above
+              // flushes it once the key is available.
+              setPendingImport({
+                // Opaque id so the flush effect can claim this import without
+                // holding on to the object (and its decrypted markdown).
+                token: uuid4(),
+                folderId: destination,
                 markdown,
                 title: titleText,
                 imageIds,
                 createdAt: parsed.created,
               });
               setImportState(null);
-              onSectionChange?.("vault");
-              toast(
-                vault.hasVault
-                  ? "Unlock your vault to finish importing"
-                  : "Create your vault to finish importing",
-                { icon: "🔐" },
+              setExpanded((prev) =>
+                prev.includes(destination) ? prev : [...prev, destination],
               );
+              toast("Unlock the folder to finish importing", { icon: "🔐" });
               return;
             }
 
             const now = new Date().toISOString();
-            const { ciphertext, iv } = await encryptContent(
-              markdown,
-              vault.vaultKey,
-            );
+            const { ciphertext, iv } = await encryptContent(markdown, entry.key);
             const { ciphertext: titleCiphertext, iv: titleIv } =
-              await encryptContent(titleText, vault.vaultKey);
+              await encryptContent(titleText, entry.key);
 
             await saveNote({
               id: uuid4(),
               ciphertext,
               iv,
-              salt: vault.vaultSalt,
+              salt: entry.salt,
               title: "",
               titleCiphertext,
               titleIv,
               imageIds,
-              vault: true,
+              folderId: destination,
               createdAt: parsed.created || now,
               updatedAt: parsed.modified || now,
             });
 
             setImportState(null);
             onNotesChanged?.(await getAllNotes());
-            onSectionChange?.("vault");
-            toast.success(`"${titleText}" added to your vault`);
+            setExpanded((prev) =>
+              prev.includes(destination) ? prev : [...prev, destination],
+            );
+            toast.success(`"${titleText}" imported`);
           }}
           onCancel={() => setImportState(null)}
         />

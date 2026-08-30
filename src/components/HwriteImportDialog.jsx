@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileInput, Lock, Unlock, FileText, Shield } from "lucide-react";
+import { FileInput, Lock, Unlock, FileText, Folder } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -14,20 +14,24 @@ import { cn } from "@/lib/utils";
 const HwriteImportDialog = ({
   parsed,
   fileSize,
-  hasVault,
+  folders = [],
+  isFolderUnlocked = () => false,
   onConfirm,
   onCancel,
 }) => {
-  const [destination, setDestination] = useState("notes");
+  const [destination, setDestination] = useState("root");
   const [passphrase, setPassphrase] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  // Only the encrypted-into-vault path needs the source passphrase up front,
-  // so we can decrypt with the file's key and re-encrypt under the vault key.
-  // Encrypted-into-notes keeps the original ciphertext; the user enters the
-  // file's passphrase the first time they open the note.
-  const needsPassphrase = parsed.encrypted && destination === "vault";
+  const targetFolder = folders.find((f) => f.id === destination) || null;
+
+  // Only the encrypted-into-a-folder path needs the source passphrase up
+  // front, so we can decrypt with the file's key and re-encrypt under the
+  // folder key. An encrypted file imported at the root keeps its original
+  // ciphertext; the user enters the file's passphrase the first time they
+  // open the note.
+  const needsPassphrase = parsed.encrypted && destination !== "root";
 
   const fmtDate = (iso) => {
     try {
@@ -47,23 +51,20 @@ const HwriteImportDialog = ({
   };
 
   const blurb = () => {
-    if (destination === "notes") {
+    if (destination === "root") {
       return parsed.encrypted
-        ? "Stored encrypted in your notes. The file's passphrase is required the first time you open it."
-        : "Loaded into the editor as a new draft. Save it with your own passphrase to add it to your notes.";
+        ? "Stored encrypted as its own note. The file's passphrase is required the first time you open it."
+        : "Loaded into the editor as a new draft. Save it with your own passphrase to keep it.";
     }
+    const name = targetFolder?.name || "the folder";
     return parsed.encrypted
-      ? hasVault
-        ? "Decrypted with the file's passphrase, then re-encrypted with your vault key."
-        : "Decrypted with the file's passphrase, then encrypted with the new vault you create."
-      : hasVault
-        ? "Encrypted with your vault key and added to your vault."
-        : "Encrypted with the new vault you create and added to it.";
+      ? `Decrypted with the file's passphrase, then re-encrypted with the ${name} folder key.`
+      : `Encrypted with the ${name} folder key and filed inside it.`;
   };
 
   const handleConfirmPreview = async () => {
     if (needsPassphrase && !passphrase) {
-      setError("Enter the file's passphrase to import it into your vault.");
+      setError("Enter the file's passphrase to import it into a folder.");
       return;
     }
     setBusy(true);
@@ -155,17 +156,17 @@ const HwriteImportDialog = ({
           >
             {[
               {
-                id: "notes",
-                label: "Notes",
-                desc: "Standard library",
+                id: "root",
+                label: "On its own",
+                desc: "Its own passphrase",
                 icon: FileText,
               },
-              {
-                id: "vault",
-                label: "Vault",
-                desc: hasVault ? "Vault-encrypted" : "Create a vault",
-                icon: Shield,
-              },
+              ...folders.map((f) => ({
+                id: f.id,
+                label: f.name,
+                desc: isFolderUnlocked(f.id) ? "Unlocked" : "Locked — unlock to finish",
+                icon: Folder,
+              })),
             ].map((opt) => {
               const active = destination === opt.id;
               const IconCmp = opt.icon;
@@ -217,7 +218,7 @@ const HwriteImportDialog = ({
                 className="rounded-md border border-border bg-background px-3 py-2 text-base focus:outline-none focus:ring-1 focus:ring-primary sm:text-sm"
               />
               <p className="text-[11px] text-muted-foreground">
-                Needed once to decrypt the file before re-encrypting it with your vault key.
+                Needed once to decrypt the file before re-encrypting it with the folder key.
               </p>
             </div>
           )}

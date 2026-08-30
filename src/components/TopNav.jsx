@@ -239,8 +239,13 @@ const AboutPage = ({ open, onClose }) => {
             data never leaves your device in plaintext.
           </p>
           <p>
+            Put notes in a folder and one passphrase unlocks all of them; a note kept on its own
+            carries its own. Folder <em>names</em> are stored unencrypted so you can tell them
+            apart while they're locked — what's inside never is.
+          </p>
+          <p>
             With optional cloud sync, you can access your encrypted notes across devices while
-            maintaining full end-to-end encryption. The server never sees your content.
+            maintaining full end-to-end encryption. The server never sees your note content.
           </p>
         </div>
         <div className="mt-10 border-t border-outline-variant/20 pt-6">
@@ -333,7 +338,7 @@ const CloudBadge = ({ state, latest, onClick }) => {
   );
 };
 
-const TopNav = ({ isUnlocked, onLock, notesCount = 0, cloudState = "loading", cloudLatest = null, onOpenBackup, isLocalOnly = false, onLogout, onSignIn, onToggleNotes, notesOpen = false }) => {
+const TopNav = ({ isUnlocked, onLock, cloudState = "loading", cloudLatest = null, onOpenBackup, isLocalOnly = false, onLogout, onSignIn, onToggleNotes, notesOpen = false }) => {
   const { theme, toggleTheme } = useTheme();
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -351,20 +356,26 @@ const TopNav = ({ isUnlocked, onLock, notesCount = 0, cloudState = "loading", cl
           >
             <Icon name={notesOpen ? "close" : "menu"} />
           </button>
-          <span className="truncate text-xl font-semibold tracking-tighter text-on-surface">
-            Hushwrite
-          </span>
-          <nav className="hidden items-center gap-6 font-semibold tracking-tight md:flex">
-            <a
-              className="flex items-center gap-2 border-b-2 border-vault-primary pb-1 font-medium text-vault-primary transition-colors duration-200 hover:text-on-surface"
-              href="#"
-            >
-              All Notes
-              <span className="rounded-full bg-primary-container/20 px-2 py-0.5 text-[10px] font-semibold text-vault-primary">
-                {notesCount}
+          <div className="flex min-w-0 items-center gap-2.5">
+            <img
+              src="/panda-192.png"
+              alt=""
+              className="h-9 w-9 shrink-0 rounded-full object-cover"
+            />
+            <div className="flex min-w-0 flex-col justify-center">
+              <span className="truncate text-xl font-semibold leading-none tracking-tighter text-on-surface">
+                Hushwrite
               </span>
-            </a>
-          </nav>
+              <span
+                className={cn(
+                  "mt-1 hidden truncate text-[10px] uppercase tracking-widest sm:block",
+                  isUnlocked ? "text-vault-primary/60" : "text-outline",
+                )}
+              >
+                {isUnlocked ? "Secure session" : "Locked"}
+              </span>
+            </div>
+          </div>
         </div>
         <div className="flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-4">
           <CloudBadge

@@ -8,7 +8,13 @@ import {
 } from "./crypto";
 import { getImage, saveImage } from "./db";
 
+// 1.0 = a single note, `content` is markdown.
+// 2.0 = a whole folder, `content` is JSON `{ notes: [...] }`. Same envelope,
+// same checksum/nonce/salt mechanics — only the payload differs, so one
+// passphrase covers every note in the bundle.
 export const HWRITE_VERSION = "1.0";
+export const HWRITE_BUNDLE_VERSION = "2.0";
+const SUPPORTED_VERSIONS = [HWRITE_VERSION, HWRITE_BUNDLE_VERSION];
 
 const TEXT_ENCODER = new TextEncoder();
 
@@ -115,6 +121,30 @@ export const rehydrateInlineImages = async (markdown) => {
 
 // --- public API -------------------------------------------------------------
 
+// Encrypt (or not) the payload into `envelope`, checksum it, and hand back the
+// downloadable Blob. Shared by the single-note and folder-bundle writers so
+// both formats stay byte-compatible in everything except their payload.
+const sealEnvelope = async (envelope, payload, { encrypted, passphrase }) => {
+  let content;
+  if (encrypted) {
+    const salt = generateSalt();
+    const key = await deriveKey(passphrase, salt);
+    const { ciphertext, iv } = await encryptContent(payload, key);
+    content = u8ToBase64(ciphertext);
+    envelope.nonce = u8ToBase64(iv);
+    envelope.salt = u8ToBase64(salt);
+  } else {
+    content = payload;
+  }
+
+  envelope.content = content;
+  envelope.checksum = await sha256Hex(content);
+
+  return new Blob([JSON.stringify(envelope, null, 2)], {
+    type: "application/json",
+  });
+};
+
 /**
  * Build a .hwrite Blob from a note. Pass `{ encrypted: true, passphrase }` to
  * produce an encrypted file; otherwise the file holds raw markdown.
@@ -130,32 +160,59 @@ export const serializeNote = async (
   const inlinedMarkdown = await inlineImagesForExport(markdown || "");
   const now = new Date().toISOString();
 
-  const envelope = {
-    hwrite: HWRITE_VERSION,
-    encrypted: !!encrypted,
-    title: (title || "Untitled").trim() || "Untitled",
-    created: createdAt || now,
-    modified: modifiedAt || now,
-  };
+  return sealEnvelope(
+    {
+      hwrite: HWRITE_VERSION,
+      encrypted: !!encrypted,
+      title: (title || "Untitled").trim() || "Untitled",
+      created: createdAt || now,
+      modified: modifiedAt || now,
+    },
+    inlinedMarkdown,
+    { encrypted, passphrase },
+  );
+};
 
-  let content;
-  if (encrypted) {
-    const salt = generateSalt();
-    const key = await deriveKey(passphrase, salt);
-    const { ciphertext, iv } = await encryptContent(inlinedMarkdown, key);
-    content = u8ToBase64(ciphertext);
-    envelope.nonce = u8ToBase64(iv);
-    envelope.salt = u8ToBase64(salt);
-  } else {
-    content = inlinedMarkdown;
+/**
+ * Build a .hwrite Blob holding an entire folder. `notes` must already be
+ * decrypted — the caller owns the folder key. Images are inlined per note so
+ * the bundle is self-contained, and the whole set is sealed under one
+ * passphrase, mirroring how the folder works inside the app.
+ */
+export const serializeFolder = async (
+  { name, notes = [] },
+  { encrypted, passphrase } = {},
+) => {
+  if (encrypted && !passphrase) {
+    throw new Error("Passphrase required for encrypted export.");
   }
 
-  envelope.content = content;
-  envelope.checksum = await sha256Hex(content);
+  const now = new Date().toISOString();
+  const exported = [];
+  for (const note of notes) {
+    exported.push({
+      title: (note.title || "Untitled").trim() || "Untitled",
+      content: await inlineImagesForExport(note.markdown || ""),
+      created: note.createdAt || now,
+      modified: note.modifiedAt || now,
+    });
+  }
 
-  return new Blob([JSON.stringify(envelope, null, 2)], {
-    type: "application/json",
-  });
+  return sealEnvelope(
+    {
+      hwrite: HWRITE_BUNDLE_VERSION,
+      kind: "folder",
+      encrypted: !!encrypted,
+      title: (name || "Folder").trim() || "Folder",
+      created: now,
+      modified: now,
+      // Plaintext, like the folder name itself — lets the import dialog show a
+      // preview before anything is decrypted.
+      note_count: exported.length,
+    },
+    JSON.stringify({ notes: exported }),
+    { encrypted, passphrase },
+  );
 };
 
 
@@ -169,10 +226,13 @@ export const parseHwrite = async (fileText) => {
   if (!parsed || typeof parsed !== "object") {
     throw new Error("Not a valid .hwrite file.");
   }
-  if (parsed.hwrite !== HWRITE_VERSION) {
+  if (!SUPPORTED_VERSIONS.includes(parsed.hwrite)) {
     throw new Error(
       `Unsupported .hwrite version: ${parsed.hwrite || "unknown"}. Please update Hushwrite.`,
     );
+  }
+  if (parsed.hwrite === HWRITE_BUNDLE_VERSION && parsed.kind !== "folder") {
+    throw new Error("Not a valid .hwrite file (unknown bundle kind).");
   }
 
   const required = [
@@ -203,6 +263,30 @@ export const parseHwrite = async (fileText) => {
   }
 
   return parsed;
+};
+
+export const isFolderBundle = (parsed) =>
+  parsed?.hwrite === HWRITE_BUNDLE_VERSION && parsed?.kind === "folder";
+
+// Decode the JSON payload of a folder bundle (the output of `decryptHwrite`)
+// into the same note shape the rest of the app uses.
+export const parseFolderPayload = (plaintext) => {
+  let data;
+  try {
+    data = JSON.parse(plaintext);
+  } catch {
+    throw new Error("Folder file contents are unreadable.");
+  }
+  if (!data || !Array.isArray(data.notes)) {
+    throw new Error("Folder file is missing its notes.");
+  }
+  return data.notes.map((n) => ({
+    title:
+      typeof n.title === "string" && n.title.trim() ? n.title.trim() : "Untitled",
+    markdown: typeof n.content === "string" ? n.content : "",
+    createdAt: n.created || null,
+    modifiedAt: n.modified || null,
+  }));
 };
 
 // Convert a parsed encrypted envelope's base64 fields back to raw bytes so the

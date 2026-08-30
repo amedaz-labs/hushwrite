@@ -19,7 +19,7 @@ import { deriveKey, decryptContent } from "../js/crypto";
 
 import { useModalQueue } from "@/hooks/useModalQueue";
 import { useNoteSession } from "@/hooks/useNoteSession";
-import { useVault } from "@/lib/vault";
+import { useFolders } from "@/lib/folders";
 
 const toBytes = (v) => (v instanceof Uint8Array ? v : new Uint8Array(v));
 
@@ -32,7 +32,7 @@ const Icon = ({ name, className, fill }) => (
   </span>
 );
 
-const SaveStatus = ({ status, vaultMode }) => {
+const SaveStatus = ({ status, folderName }) => {
   switch (status) {
     case "saving":
       return (
@@ -45,7 +45,9 @@ const SaveStatus = ({ status, vaultMode }) => {
       return (
         <div className="flex items-center gap-1.5 text-on-surface-variant">
           <Icon name="check_circle" className="text-sm" fill />
-          <span>{vaultMode ? "SAVED · VAULT" : "SAVED"}</span>
+          <span>
+            {folderName ? `SAVED · ${folderName.toUpperCase()}` : "SAVED"}
+          </span>
         </div>
       );
     case "dirty":
@@ -141,7 +143,7 @@ const Markdown = ({
   onLockRef,
   onIsUnlockedRef,
   onSaveBeforeNewRef,
-  vaultMode = false,
+  activeFolderId = null,
   isComposingNew = false,
 }) => {
   const editorContainerRef = useRef(null);
@@ -223,25 +225,20 @@ const Markdown = ({
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [aiSnapshot, setAiSnapshot] = useState(null);
   const [infoOpen, setInfoOpen] = useState(false);
-  const {
-    isVaultUnlocked,
-    vaultKey,
-    vaultSalt,
-    changeVaultPassphrase,
-  } = useVault();
+  const folders = useFolders();
 
   const { modal, open: openModal } = useModalQueue();
-  const askPassphrase = (mode) => openModal({ type: "passphrase", mode });
+  const askPassphrase = (mode, extra = {}) =>
+    openModal({ type: "passphrase", mode, ...extra });
   const askDeleteConfirm = (opts = {}) =>
     openModal({ type: "delete", ...opts });
-
-  const vaultSession =
-    vaultMode && isVaultUnlocked ? { key: vaultKey, salt: vaultSalt } : null;
 
   const {
     saveStatus,
     unlockError,
     isUnlocked,
+    getSessionKey,
+    adoptSessionKey,
     lock,
     unlockCurrent,
     switchToNote,
@@ -249,7 +246,7 @@ const Markdown = ({
     saveBeforeLeaving,
     changePassphrase,
     deleteCurrent,
-    deleteVaultNote,
+    deleteFolderNote,
     forceDeleteCurrent,
   } = useNoteSession({
     markdown,
@@ -260,12 +257,25 @@ const Markdown = ({
     setCurrentId,
     setNotes,
     askPassphrase,
-    vault: vaultSession,
+    folders,
+    activeFolderId,
   });
 
-  // Expose lock + unlock-state to TopNav via refs passed from App.
+  // The folder that owns the note currently in the editor (null for a root
+  // note with its own passphrase). A saved note answers for itself; only an
+  // unsaved draft falls back to wherever the sidebar is pointing.
+  const openNote = notes.find((n) => n.id === currentId);
+  const noteFolderId = openNote ? openNote.folderId || null : activeFolderId;
+  const noteFolder = folders.folders.find((f) => f.id === noteFolderId) || null;
+
+  // Expose lock + unlock-state to TopNav via refs passed from App. The global
+  // Lock button drops every folder key too, not just this note's session.
   useEffect(() => {
-    if (onLockRef) onLockRef.current = lock;
+    if (onLockRef)
+      onLockRef.current = async () => {
+        await lock();
+        folders.lockAll();
+      };
     if (onIsUnlockedRef) onIsUnlockedRef.current = isUnlocked;
     if (onSaveBeforeNewRef) onSaveBeforeNewRef.current = saveBeforeLeaving;
   });
@@ -279,7 +289,7 @@ const Markdown = ({
     (async () => {
       try {
         await switchToNote(selectedNote);
-        if (!vaultMode) toast.success("Note unlocked");
+        if (!selectedNote.folderId) toast.success("Note unlocked");
       } catch (err) {
         if (!isQuietError(err) && err?.message) {
           /* surfaced inside locked card */
@@ -358,11 +368,12 @@ const Markdown = ({
         setTitle("");
         setCurrentId(null);
         setNotes(await getAllNotes());
-      } else if (vaultMode) {
+      } else if (note.folderId) {
+        // The folder key already authorized this note — confirm only.
         await askDeleteConfirm({ requirePassphrase: false });
-        await deleteVaultNote();
+        await deleteFolderNote();
       } else {
-        // Unlocked non-vault: verify the passphrase inside the dialog so a
+        // Unlocked root note: verify the passphrase inside the dialog so a
         // wrong entry keeps the prompt open with an error, rather than
         // bailing out. The 30-day override is offered inline.
         const result = await askDeleteConfirm({
@@ -396,9 +407,8 @@ const Markdown = ({
   // A locked note older than 30 days can be deleted without a passphrase.
   // Younger notes force a passphrase verify to prevent casual wipes.
   const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-  const currentNoteMeta = notes.find((n) => n.id === currentId);
-  const noteCreatedAt = currentNoteMeta?.createdAt
-    ? new Date(currentNoteMeta.createdAt)
+  const noteCreatedAt = openNote?.createdAt
+    ? new Date(openNote.createdAt)
     : null;
   const noteAgeMs = noteCreatedAt ? Date.now() - noteCreatedAt.getTime() : 0;
   const canDeleteWithoutUnlock = noteAgeMs >= THIRTY_DAYS_MS;
@@ -468,6 +478,7 @@ const Markdown = ({
       {modal?.type === "passphrase" && !suppressPassphraseModal && (
         <PassphraseModal
           mode={modal.mode}
+          folderName={modal.folderName}
           onConfirm={modal.confirm}
           onCancel={modal.cancel}
         />
@@ -490,10 +501,26 @@ const Markdown = ({
         onOpenChange={setInfoOpen}
         markdown={markdown}
         title={title}
-        vaultMode={vaultMode}
-        isUnlocked={vaultMode ? isVaultUnlocked : isUnlocked()}
+        folderName={noteFolder?.name || null}
+        isUnlocked={isUnlocked()}
         onChangePassphrase={changePassphrase}
-        onChangeVaultPassphrase={changeVaultPassphrase}
+        canMove={isUnlocked() && !!currentId}
+        folders={folders.folders}
+        currentFolderId={noteFolderId || null}
+        isFolderUnlocked={folders.isFolderUnlocked}
+        onMoveNote={async (targetFolderId, newPassphrase) => {
+          const result = await folders.moveNoteToFolder(
+            currentId,
+            targetFolderId,
+            { sourceKey: getSessionKey(), newPassphrase },
+          );
+          // Keep editing without a re-unlock: the note now answers to the
+          // destination's key.
+          if (result) {
+            adoptSessionKey(result.key, result.salt, targetFolderId || null);
+          }
+          setNotes(await getAllNotes());
+        }}
       />
 
       {!hasNoteOpen ? (
@@ -531,7 +558,7 @@ const Markdown = ({
                 setMarkdown={setMarkdown}
                 title={title}
                 setTitle={setTitle}
-                vaultMode={vaultMode}
+                folderNote={!!noteFolderId}
                 onOpenSettings={() => setAiSettingsOpen(true)}
                 onSnapshot={(snapshot) => setAiSnapshot(snapshot)}
                 disabled={!!aiSnapshot}
@@ -544,7 +571,7 @@ const Markdown = ({
             {wordCount.toLocaleString()} WORDS
           </span>
           <div className="flex items-center gap-1 rounded-full bg-surface-container-low px-2.5 py-1">
-            <SaveStatus status={saveStatus} vaultMode={vaultMode} />
+            <SaveStatus status={saveStatus} folderName={noteFolder?.name} />
             {currentId && saveStatus !== "locked" && (
               <button
                 onClick={() => setInfoOpen(true)}

@@ -11,10 +11,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-// Confirm modal for exporting a note as .hwrite. Lets the user pick between an
+// Confirm modal for exporting as .hwrite. Lets the user pick between an
 // encrypted file (with its own passphrase, independent of the app passphrase)
-// and a plaintext file. Encrypted is the default.
-const HwriteExportDialog = ({ onConfirm, onCancel }) => {
+// and a plaintext file. Encrypted is the default. Pass `folderName` to export a
+// whole folder instead of the open note — same envelope, one passphrase for
+// every note in the bundle.
+const HwriteExportDialog = ({
+  folderName = null,
+  noteCount = 0,
+  onConfirm,
+  onCancel,
+}) => {
   const [encrypted, setEncrypted] = useState(true);
   const [passphrase, setPassphrase] = useState("");
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
@@ -48,11 +55,19 @@ const HwriteExportDialog = ({ onConfirm, onCancel }) => {
             <FileLock2 className="h-5 w-5 text-primary" />
           </div>
           <DialogHeader>
-            <DialogTitle>Export as .hwrite</DialogTitle>
+            <DialogTitle>
+              {folderName
+                ? `Export “${folderName}” as .hwrite`
+                : "Export as .hwrite"}
+            </DialogTitle>
             <DialogDescription>
               {encrypted
-                ? "The file will be encrypted. Anyone with the passphrase can open it on any Hushwrite install."
-                : "The file will contain your note in plaintext. Anyone who opens the file can read it."}
+                ? folderName
+                  ? `All ${noteCount} note${noteCount === 1 ? "" : "s"} go into one encrypted file. Anyone with the passphrase can open it on any Hushwrite install.`
+                  : "The file will be encrypted. Anyone with the passphrase can open it on any Hushwrite install."
+                : folderName
+                  ? `The file will contain all ${noteCount} note${noteCount === 1 ? "" : "s"} in plaintext. Anyone who opens the file can read them.`
+                  : "The file will contain your note in plaintext. Anyone who opens the file can read it."}
             </DialogDescription>
           </DialogHeader>
         </div>

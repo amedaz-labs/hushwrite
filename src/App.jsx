@@ -4,8 +4,8 @@ import TopNav from "./components/TopNav";
 import NoteList from "./components/NoteList";
 import Markdown from "./components/Markdown";
 import BackupPanel from "./components/BackupPanel";
-import { getAllNotes } from "./js/db";
-import { VaultProvider } from "./lib/vault";
+import { getAllNotes, migrateToFolders } from "./js/db";
+import { FolderProvider } from "./lib/folders";
 import { isLoggedIn, clearAuth } from "./js/api";
 import { getCloudState, resetBackupPointers } from "./js/backup";
 
@@ -17,7 +17,9 @@ const App = () => {
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState([]);
   const [selectedNote, setSelectedNote] = useState(null);
-  const [activeSection, setActiveSection] = useState("notes");
+  // Which folder new notes are filed into. `null` = a root note that carries
+  // its own passphrase.
+  const [activeFolderId, setActiveFolderId] = useState(null);
   const [isComposingNew, setIsComposingNew] = useState(false);
   const [titleCache, setTitleCache] = useState({});
 
@@ -54,8 +56,13 @@ const App = () => {
   }, [currentId]);
 
   const loadNotes = async () => setNotes(await getAllNotes());
+  // Convert any pre-folders profile (singleton vault + loose notes) before the
+  // first read, so nothing ever renders against the old shape.
   useEffect(() => {
-    loadNotes();
+    (async () => {
+      await migrateToFolders();
+      await loadNotes();
+    })();
   }, []);
 
   // Poll cloud state in the background. Cheap (manifest only) and gives the
@@ -128,14 +135,6 @@ const App = () => {
     toast("Session locked", { icon: "🔒" });
   };
 
-  const handleNewNoteInVault = async () => {
-    // Save the current draft under its current section before switching to the
-    // vault, then create the new note (handleNewNote's own save is a no-op now).
-    if (!(await saveBeforeNew())) return;
-    setActiveSection("vault");
-    handleNewNote();
-  };
-
   const handleLogout = () => {
     clearAuth();
     resetBackupPointers();
@@ -157,12 +156,11 @@ const App = () => {
   };
 
   return (
-    <VaultProvider>
+    <FolderProvider>
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-surface font-body text-on-surface selection:bg-vault-primary/30">
       <TopNav
         isUnlocked={isUnlockedRef.current?.() ?? false}
         onLock={handleLock}
-        notesCount={notes.length}
         cloudState={cloud.state}
         cloudLatest={cloud.latest}
         onOpenBackup={handleOpenBackup}
@@ -198,19 +196,10 @@ const App = () => {
           onNotesChanged={(next) => setNotes(next)}
           onNewNote={() => {
             setNotesOpen(false);
-            return activeSection === "vault"
-              ? handleNewNoteInVault()
-              : handleNewNote();
+            return handleNewNote();
           }}
-          activeSection={activeSection}
-          onSectionChange={(id) => {
-            setActiveSection(id);
-            setSelectedNote(null);
-            setCurrentId(null);
-            setMarkdown("");
-            setTitle("");
-            setIsComposingNew(false);
-          }}
+          activeFolderId={activeFolderId}
+          onActiveFolderChange={setActiveFolderId}
           isComposingNew={isComposingNew}
           isNoteUnlocked={isUnlockedRef.current?.() ?? false}
         />
@@ -228,7 +217,7 @@ const App = () => {
           onLockRef={lockRef}
           onIsUnlockedRef={isUnlockedRef}
           onSaveBeforeNewRef={saveBeforeNewRef}
-          vaultMode={activeSection === "vault"}
+          activeFolderId={activeFolderId}
           isComposingNew={isComposingNew}
         />
       </main>
@@ -263,7 +252,7 @@ const App = () => {
         }}
       />
     </div>
-    </VaultProvider>
+    </FolderProvider>
   );
 };
 

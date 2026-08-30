@@ -29,6 +29,7 @@ import {
   setDeviceLabel,
   setSnapshotPinned,
 } from "@/js/backup";
+import { useFolders } from "@/lib/folders";
 
 const Icon = ({ name, className }) => (
   <span className={cn("material-symbols-outlined", className)}>{name}</span>
@@ -61,6 +62,14 @@ function pluralize(n, one, many) {
 }
 
 const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) => {
+  const folders = useFolders();
+  // A restore swaps out every folder record, so any key held in memory is now
+  // meaningless — drop them and re-read the folder list.
+  const afterRestore = async () => {
+    folders.lockAll();
+    await folders.refreshFolders();
+    onRestoreComplete?.();
+  };
   const [authed, setAuthed] = useState(isLoggedIn());
   const [snapshots, setSnapshots] = useState([]);
   const [limit, setLimit] = useState(10);
@@ -177,7 +186,7 @@ const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) =
       await restoreSnapshot(confirm.snapshot.id);
       toast.success(`Restored · ${confirm.snapshot.note_count} notes`);
       setConfirm(null);
-      onRestoreComplete?.();
+      await afterRestore();
       onOpenChange(false);
     } catch (err) {
       setError(err.message || "Restore failed");
@@ -201,7 +210,7 @@ const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) =
       await restoreSnapshot(confirm.snapshot.id);
       toast.success(`Restored · ${confirm.snapshot.note_count} notes`);
       setConfirm(null);
-      onRestoreComplete?.();
+      await afterRestore();
       onOpenChange(false);
     } catch (err) {
       setError(err.message || "Operation failed");
@@ -638,7 +647,7 @@ const SnapshotRow = ({ snapshot, isLast, busy, onRestore, onDelete, onTogglePin,
           )}
           {snapshot.has_vault && (
             <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-vault-primary">
-              Vault
+              Folders
             </span>
           )}
         </div>

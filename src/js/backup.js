@@ -2,9 +2,8 @@ import { api, isLoggedIn } from "./api";
 import {
   getAllNotes,
   getAllImages,
-  getVaultMeta,
+  getAllFolders,
   replaceAll,
-  VAULT_META_ID,
 } from "./db";
 
 const DEVICE_ID_KEY = "hushwrite-device-id";
@@ -12,7 +11,11 @@ const DEVICE_LABEL_KEY = "hushwrite-device-label";
 const LAST_SNAPSHOT_ID_KEY = "hushwrite-last-snapshot-id";
 const LAST_LOCAL_HASH_KEY = "hushwrite-last-local-hash";
 
-const SNAPSHOT_SCHEMA = "1.0";
+// 1.1 replaced the singleton `vault_meta` + `vault: true` note flag with a
+// `folders` array and a `folder_id` per note. 1.0 snapshots still restore —
+// their vault is folded into one folder on the way in.
+const SNAPSHOT_SCHEMA = "1.1";
+const LEGACY_SCHEMA = "1.0";
 
 // ---------- Device identity ----------
 
@@ -126,7 +129,7 @@ function noteToWire(note) {
       : null,
     title_iv: note.titleIv ? arrayToBase64(note.titleIv) : null,
     title: note.title || null,
-    vault: !!note.vault,
+    folder_id: note.folderId || null,
     image_ids: Array.isArray(note.imageIds) ? note.imageIds : [],
     created_at: note.createdAt || null,
     updated_at: note.updatedAt || null,
@@ -144,34 +147,42 @@ function wireToNote(wire) {
       : null,
     titleIv: wire.title_iv ? base64ToArray(wire.title_iv) : null,
     title: wire.title || "",
-    vault: !!wire.vault,
+    folderId: wire.folder_id || null,
     imageIds: Array.isArray(wire.image_ids) ? wire.image_ids : [],
     createdAt: wire.created_at || null,
     updatedAt: wire.updated_at || null,
   };
 }
 
-function vaultMetaToWire(meta) {
-  if (!meta) return null;
+// A folder's wire form carries only what's needed to re-derive its key on
+// another device: the salt and the encrypted verifier. The key itself is never
+// serialized. The name travels in plaintext so a locked folder is still
+// identifiable after a restore.
+function folderToWire(folder) {
   return {
-    salt: arrayToBase64(meta.salt),
-    verifier_ciphertext: meta.verifierCiphertext
-      ? arrayToBase64(meta.verifierCiphertext)
+    id: folder.id,
+    name: folder.name || "",
+    salt: arrayToBase64(folder.salt),
+    verifier_ciphertext: folder.verifierCiphertext
+      ? arrayToBase64(folder.verifierCiphertext)
       : null,
-    verifier_iv: meta.verifierIv ? arrayToBase64(meta.verifierIv) : null,
-    created_at: meta.createdAt || null,
+    verifier_iv: folder.verifierIv ? arrayToBase64(folder.verifierIv) : null,
+    created_at: folder.createdAt || null,
+    updated_at: folder.updatedAt || null,
   };
 }
 
-function wireToVaultMeta(wire) {
-  if (!wire) return null;
+function wireToFolder(wire) {
   return {
+    id: wire.id,
+    name: wire.name || "Folder",
     salt: base64ToArray(wire.salt),
     verifierCiphertext: wire.verifier_ciphertext
       ? base64ToArray(wire.verifier_ciphertext)
       : null,
     verifierIv: wire.verifier_iv ? base64ToArray(wire.verifier_iv) : null,
     createdAt: wire.created_at || null,
+    updatedAt: wire.updated_at || null,
   };
 }
 
@@ -189,19 +200,17 @@ function wireToImage(wire) {
 // ---------- Local snapshot building ----------
 
 async function buildLocalState() {
-  const allNotes = await getAllNotes();
-  const vaultMeta = await getVaultMeta();
+  const notes = await getAllNotes();
+  const folders = await getAllFolders();
   const images = await getAllImages();
-
-  const notes = allNotes.filter((n) => n.id !== VAULT_META_ID);
-  return { notes, vaultMeta: vaultMeta || null, images };
+  return { notes, folders, images };
 }
 
 function buildManifest(notes) {
   return notes.map((n) => ({
     id: n.id,
     updated_at: n.updatedAt || null,
-    vault: !!n.vault,
+    folder_id: n.folderId || null,
   }));
 }
 
@@ -221,18 +230,17 @@ async function hashManifest(manifest) {
 export async function backupSnapshot() {
   if (!isLoggedIn()) throw new Error("Not signed in to a backup account");
 
-  const { notes, vaultMeta, images } = await buildLocalState();
+  const { notes, folders, images } = await buildLocalState();
   const manifest = buildManifest(notes);
-  const hasVault = !!vaultMeta;
 
   const wireNotes = notes.map(noteToWire);
   const wireImages = await Promise.all(images.map(imageToWire));
-  const wireVault = vaultMetaToWire(vaultMeta);
+  const wireFolders = folders.map(folderToWire);
 
   const blobObj = {
     schema: SNAPSHOT_SCHEMA,
     notes: wireNotes,
-    vault_meta: wireVault,
+    folders: wireFolders,
     images: wireImages,
   };
   const blob = JSON.stringify(blobObj);
@@ -242,7 +250,8 @@ export async function backupSnapshot() {
     device_label: getOrInitDeviceLabel(),
     note_count: notes.length,
     image_count: images.length,
-    has_vault: hasVault,
+    // Server column predates folders; it now means "has encrypted folders".
+    has_vault: folders.length > 0,
     manifest,
     blob,
   });
@@ -275,24 +284,51 @@ export async function restoreSnapshot(snapshotId) {
   } catch {
     throw new Error("Snapshot data is corrupt");
   }
-  if (!parsed || parsed.schema !== SNAPSHOT_SCHEMA) {
+  if (
+    !parsed ||
+    (parsed.schema !== SNAPSHOT_SCHEMA && parsed.schema !== LEGACY_SCHEMA)
+  ) {
     throw new Error("Snapshot uses an unsupported format");
   }
 
   const wireNotes = Array.isArray(parsed.notes) ? parsed.notes : [];
   const wireImages = Array.isArray(parsed.images) ? parsed.images : [];
-  const wireVault = parsed.vault_meta || null;
 
-  const hasVaultNotes = wireNotes.some((n) => n && n.vault);
-  if (hasVaultNotes && !wireVault) {
-    throw new Error("Snapshot is missing vault metadata; refusing to restore.");
+  let folders;
+  let notes;
+  if (parsed.schema === LEGACY_SCHEMA) {
+    // Pre-folders snapshot: fold the singleton vault into one folder and
+    // reparent its notes, mirroring `migrateToFolders`.
+    const wireVault = parsed.vault_meta || null;
+    if (wireNotes.some((n) => n && n.vault) && !wireVault) {
+      throw new Error(
+        "Snapshot is missing vault metadata; refusing to restore.",
+      );
+    }
+    const legacyFolderId = wireVault ? crypto.randomUUID() : null;
+    folders = wireVault
+      ? [wireToFolder({ ...wireVault, id: legacyFolderId, name: "Vault" })]
+      : [];
+    notes = wireNotes.map((w) => ({
+      ...wireToNote(w),
+      folderId: w.vault ? legacyFolderId : null,
+    }));
+  } else {
+    folders = (Array.isArray(parsed.folders) ? parsed.folders : []).map(
+      wireToFolder,
+    );
+    notes = wireNotes.map(wireToNote);
+    const known = new Set(folders.map((f) => f.id));
+    if (notes.some((n) => n.folderId && !known.has(n.folderId))) {
+      throw new Error(
+        "Snapshot references a missing folder; refusing to restore.",
+      );
+    }
   }
 
-  const notes = wireNotes.map(wireToNote);
-  const vaultMeta = wireToVaultMeta(wireVault);
   const images = wireImages.map(wireToImage);
 
-  await replaceAll({ notes, images, vaultMeta });
+  await replaceAll({ notes, images, folders });
 
   setLastSnapshotId(snap.id);
   const localManifest = buildManifest(notes);

@@ -46,7 +46,7 @@ const AIActionsMenu = ({
   setMarkdown,
   title = "",
   setTitle,
-  vaultMode = false,
+  folderNote = false,
   onOpenSettings,
   onSnapshot,
   disabled = false,
@@ -54,7 +54,7 @@ const AIActionsMenu = ({
   const ai = useAI();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [vaultConsent, setVaultConsent] = useState(false);
+  const [folderConsent, setFolderConsent] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
   const ref = useRef(null);
   const abortRef = useRef(null);
@@ -71,7 +71,7 @@ const AIActionsMenu = ({
 
   const triggerAction = (action) => {
     setOpen(false);
-    if (vaultMode && !vaultConsent) {
+    if (folderNote && !folderConsent) {
       setPendingAction(action);
       return;
     }
@@ -79,7 +79,7 @@ const AIActionsMenu = ({
   };
 
   const handleConsent = () => {
-    setVaultConsent(true);
+    setFolderConsent(true);
     const action = pendingAction;
     setPendingAction(null);
     if (action) void executeAction(action);
@@ -247,17 +247,17 @@ const AIActionsMenu = ({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Icon name="shield_lock" className="text-vault-primary" />
-              Run AI on a vault note?
+              Run AI on a folder note?
             </DialogTitle>
             <DialogDescription>
-              Vault content is treated as extra-sensitive. Plaintext stays on
-              this device — the model runs locally — but you should explicitly
-              consent before passing vault notes to AI.
+              Notes kept in an encrypted folder are treated as extra-sensitive.
+              Plaintext stays on this device — the model runs locally — but you
+              should explicitly consent before passing them to AI.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-lg bg-surface-container-low p-3 text-xs text-on-surface-variant">
             This consent lasts for the current session only. It resets when you
-            lock the vault or reload the app.
+            lock the folder or reload the app.
           </div>
           <div className="flex justify-end gap-2">
             <button
