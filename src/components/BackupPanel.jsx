@@ -30,10 +30,72 @@ import {
   setSnapshotPinned,
 } from "@/js/backup";
 import { useFolders } from "@/lib/folders";
+import {
+  ArrowLeft,
+  CloudUpload,
+  History,
+  Laptop,
+  Loader2,
+  Lock,
+  LogOut,
+  Monitor,
+  MonitorSmartphone,
+  MoreVertical,
+  Pen,
+  Pin,
+  PinOff,
+  RefreshCw,
+  Smartphone,
+  Tablet,
+  Terminal,
+  Trash2,
+} from "lucide-react";
 
-const Icon = ({ name, className }) => (
-  <span className={cn("material-symbols-outlined", className)}>{name}</span>
-);
+// Lucide replacements for this panel's former Material Symbols. Sized at 1em
+// so the existing `text-*` classes keep driving the glyph size exactly as the
+// icon font did.
+const GLYPHS = {
+  arrow_back: ArrowLeft,
+  lock: Lock,
+  cloud_upload: CloudUpload,
+  push_pin: Pin,
+  keep_off: PinOff,
+  logout: LogOut,
+  progress_activity: Loader2,
+  restore: History,
+  refresh: RefreshCw,
+  more_vert: MoreVertical,
+  edit: Pen,
+  delete: Trash2,
+  // Every return value of `deviceIconFor()` — a missing one used to render an
+  // empty box on every snapshot row.
+  smartphone: Smartphone,
+  tablet: Tablet,
+  laptop_mac: Laptop,
+  desktop_windows: Monitor,
+  computer: Terminal,
+  devices: MonitorSmartphone,
+};
+
+const Icon = ({ name, className }) => {
+  const Glyph = GLYPHS[name];
+  if (!Glyph) {
+    // Silently rendering nothing is how six device glyphs and four menu icons
+    // went missing through an icon migration without anyone noticing. Fail
+    // loudly in dev; still render nothing in prod rather than crash.
+    if (import.meta.env.DEV) {
+      console.warn(`[BackupPanel] no lucide glyph mapped for icon "${name}"`);
+    }
+    return null;
+  }
+  return (
+    <Glyph
+      aria-hidden="true"
+      strokeWidth={1.7}
+      className={cn("inline-block h-[1em] w-[1em] shrink-0", className)}
+    />
+  );
+};
 
 function formatTime(iso) {
   if (!iso) return "—";
@@ -325,7 +387,7 @@ const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) =
             <div className="mx-auto grid w-full max-w-5xl gap-6 px-6 py-8 md:grid-cols-[320px_1fr] md:px-10 md:py-10">
               {/* Sidebar — this device + actions */}
               <aside className="space-y-4 md:sticky md:top-6 md:self-start">
-                <section className="rounded-2xl border border-outline-variant/20 bg-surface-container/60 p-5">
+                <section className="rounded-2xl border border-outline-variant/45 bg-surface-container/60 p-5">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-on-surface-variant">
                     This device
                   </p>
@@ -335,7 +397,7 @@ const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) =
                     onChange={(e) => setLabelDraft(e.target.value)}
                     onBlur={saveLabel}
                     placeholder="e.g. MacBook"
-                    className="mt-2 w-full rounded-lg border border-outline-variant/30 bg-surface px-3 py-2 text-base font-semibold text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none"
+                    className="mt-2 w-full rounded-lg border border-outline/85 bg-surface px-3 py-2 text-base font-semibold text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none"
                   />
                   <button
                     onClick={handleBackup}
@@ -364,7 +426,7 @@ const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) =
                   </div>
                 </section>
 
-                <section className="rounded-2xl border border-outline-variant/20 bg-surface-container/60 p-5">
+                <section className="rounded-2xl border border-outline-variant/45 bg-surface-container/60 p-5">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-on-surface-variant">
                     Account
                   </p>
@@ -373,7 +435,7 @@ const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) =
                   </p>
                   <button
                     onClick={handleSignOut}
-                    className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-outline-variant/30 bg-surface px-3 py-2 text-xs font-semibold text-error transition-colors hover:bg-error/10"
+                    className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-outline-variant/60 bg-surface px-3 py-2 text-xs font-semibold text-error transition-colors hover:bg-error/10"
                   >
                     <Icon name="logout" className="text-sm" />
                     Sign out
@@ -410,7 +472,7 @@ const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) =
                 )}
 
                 {loading && snapshots.length === 0 ? (
-                  <div className="flex items-center justify-center rounded-2xl border border-dashed border-outline-variant/30 py-12 text-sm text-outline">
+                  <div className="flex items-center justify-center rounded-2xl border border-dashed border-outline-variant/60 py-12 text-sm text-outline">
                     <Icon name="progress_activity" className="mr-2 animate-spin text-base" />
                     Loading backups…
                   </div>
@@ -591,7 +653,7 @@ const SnapshotRow = ({ snapshot, isLast, busy, onRestore, onDelete, onTogglePin,
   return (
     <li
       className={cn(
-        "group flex flex-col items-start gap-3 rounded-2xl border border-outline-variant/20 bg-surface-container/60 px-4 py-3 transition-all hover:border-outline-variant/50 hover:bg-surface-container sm:flex-row sm:items-center sm:gap-4",
+        "group flex flex-col items-start gap-3 rounded-2xl border border-outline-variant/45 bg-surface-container/60 px-4 py-3 transition-all hover:border-outline-variant/70 hover:bg-surface-container sm:flex-row sm:items-center sm:gap-4",
         isLast && "border-vault-primary/40 bg-primary-container/10 ring-1 ring-vault-primary/20",
       )}
     >
@@ -622,7 +684,7 @@ const SnapshotRow = ({ snapshot, isLast, busy, onRestore, onDelete, onTogglePin,
                   setEditing(false);
                 }
               }}
-              className="w-full min-w-0 rounded-md border border-vault-primary/40 bg-surface px-2 py-0.5 text-base font-semibold text-on-surface focus:outline-none sm:text-sm"
+              className="w-full min-w-0 rounded-md border border-vault-primary/60 bg-surface px-2 py-0.5 text-base font-semibold text-on-surface focus:outline-none sm:text-sm"
             />
           ) : (
             <button
@@ -680,7 +742,7 @@ const SnapshotRow = ({ snapshot, isLast, busy, onRestore, onDelete, onTogglePin,
             <Icon name="more_vert" className="text-base" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-xl border border-outline-variant/30 bg-surface-container shadow-xl">
+            <div className="absolute right-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-xl border border-outline-variant/60 bg-surface-container shadow-xl">
               <MenuItem
                 icon={snapshot.pinned ? "keep_off" : "push_pin"}
                 label={snapshot.pinned ? "Unpin" : "Pin backup"}
@@ -697,7 +759,7 @@ const SnapshotRow = ({ snapshot, isLast, busy, onRestore, onDelete, onTogglePin,
                   setEditing(true);
                 }}
               />
-              <div className="my-1 border-t border-outline-variant/20" />
+              <div className="my-1 border-t border-outline-variant/45" />
               <MenuItem
                 icon="delete"
                 label="Delete"
@@ -765,7 +827,7 @@ const DiffSummary = ({ diff, mode, total }) => {
     if (!total) lines.push("No changes since the last backup.");
   }
   return (
-    <ul className="space-y-1 rounded-md border border-outline-variant/30 bg-surface-container p-3 text-xs text-on-surface-variant">
+    <ul className="space-y-1 rounded-md border border-outline-variant/60 bg-surface-container p-3 text-xs text-on-surface-variant">
       {lines.map((line, i) => (
         <li key={i}>{line}</li>
       ))}
@@ -857,12 +919,12 @@ const InlineAuth = ({ onSignedIn }) => {
   };
 
   const inputClass =
-    "w-full rounded-lg border border-outline-variant/30 bg-surface px-3 py-2.5 text-base text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none sm:text-sm";
+    "w-full rounded-lg border border-outline/85 bg-surface px-3 py-2.5 text-base text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none sm:text-sm";
 
   return (
     <form
       onSubmit={submit}
-      className="space-y-3 rounded-2xl border border-outline-variant/20 bg-surface-container/60 p-5"
+      className="space-y-3 rounded-2xl border border-outline-variant/45 bg-surface-container/60 p-5"
     >
       {(mode === "login" || mode === "register" || mode === "forgot") && (
         <div>

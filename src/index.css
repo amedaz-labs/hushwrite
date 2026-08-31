@@ -22,6 +22,9 @@
     --v-tertiary: #ffb783;
     --v-error-container: #93000a;
     --v-on-error: #690005;
+    --v-ok: #8ee6b0;
+    --v-warn: #ffcf8b;
+    --v-error: #ffb4ab;
 
     /* shadcn HSL tokens (Button, Input, Dialog) mapped to the same dark palette */
     --background: 240 3% 8%;
@@ -64,13 +67,23 @@
     --v-on-surface: #1a1a1d;
     --v-on-surface-variant: #46464f;
     --v-outline: #6b6b74;
-    --v-outline-variant: #d5d4dc;
+    /* Darkened from #d5d4dc. The alpha sweep on `outline-variant` hairlines was
+       a no-op in light theme because the TOKEN was the ceiling: #d5d4dc tops out
+       at 1.44:1 on `--v-surface` even at 100% opacity, so /45 and /60 differed
+       by 0.06. This brings the light hairlines onto the same footing as dark. */
+    --v-outline-variant: #b9b8c3;
     --v-primary: #494bd6;
     --v-primary-container: #c0c1ff;
     --v-on-primary-fixed: #ffffff;
     --v-tertiary: #8a4a00;
     --v-error-container: #ffdad6;
     --v-on-error: #ffffff;
+    --v-ok: #116b43;
+    /* Darkened from #8a5a00: the save pill is `bg-warn/15 text-warn`, and on
+       its own chip #8a5a00 measured 4.15:1 — dropping to 3.60:1 on
+       `hover:bg-warn/25`, below 4.5:1 for 12px text. */
+    --v-warn: #714a00;
+    --v-error: #b3261e;
 
     --background: 240 20% 99%;
     --foreground: 240 10% 10%;
@@ -114,12 +127,22 @@
     @apply bg-surface text-on-surface antialiased;
     font-family: "Inter", "Segoe UI", sans-serif;
   }
+  /* Follows the theme — the hardcoded dark lavender was invisible-ish on the
+     light palette. */
   ::selection {
-    background: rgb(192 193 255 / 0.3);
+    background: color-mix(in srgb, var(--v-primary) 30%, transparent);
   }
-  .material-symbols-outlined {
-    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
-    user-select: none;
+  /* One focus ring for every control that doesn't already draw its own,
+     matching the shadcn `focus-visible:ring-ring` the Button primitive uses.
+     Deliberately NOT `*:focus-visible`: text fields and the contenteditable
+     Milkdown surface match :focus-visible on plain mouse focus too, so a
+     blanket rule would ring the whole editor for the entire time you type in
+     it. Those already signal focus with their own border. */
+  a:focus-visible,
+  button:focus-visible,
+  summary:focus-visible,
+  [role="button"]:focus-visible {
+    @apply outline-none ring-2 ring-ring;
   }
 }
 

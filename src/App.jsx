@@ -5,7 +5,7 @@ import NoteList from "./components/NoteList";
 import Markdown from "./components/Markdown";
 import BackupPanel from "./components/BackupPanel";
 import { getAllNotes, migrateToFolders } from "./js/db";
-import { FolderProvider } from "./lib/folders";
+import { useFolders } from "./lib/folders";
 import { isLoggedIn, clearAuth } from "./js/api";
 import { getCloudState, resetBackupPointers } from "./js/backup";
 
@@ -27,6 +27,17 @@ const App = () => {
   const [backupOpen, setBackupOpen] = useState(false);
   const [cloud, setCloud] = useState({ state: "loading", latest: null });
 
+  // Two small pieces lifted out of NoteList so the editor's empty state can
+  // reach the same entry points: the folder create/rename/re-key dialog, and a
+  // nonce that pops the (still NoteList-owned) hidden file input.
+  const [folderDialog, setFolderDialog] = useState(null);
+  const [importRequest, setImportRequest] = useState(0);
+
+  // Folder keys live in context, so the top bar's lock indicator can count
+  // them reactively — `isUnlocked` alone only reports the editor session.
+  const folders = useFolders();
+  const { unlockedIds } = folders;
+
   // Escape closes the mobile drawer (the overlay only handles clicks).
   useEffect(() => {
     if (!notesOpen) return;
@@ -45,6 +56,16 @@ const App = () => {
   const saveBeforeNewRef = useRef(async () => true);
   const saveBeforeNew = () =>
     saveBeforeNewRef.current ? saveBeforeNewRef.current() : Promise.resolve(true);
+  // The note session's own `finalizeDelete`. `Markdown` is mounted for the
+  // whole life of the app and assigns this on every render, so it is set well
+  // before any row-level delete can be clicked.
+  const noteDeletedRef = useRef(null);
+  // `isUnlockedRef` reads a ref that React never re-renders for, so this tick
+  // is what keeps the top bar and the sidebar's lock glyphs from going stale.
+  // Folder state is reactive via `useFolders()`; only the editor session still
+  // needs polling. Replacing it means having Markdown push its unlock
+  // transitions up — worth doing, but not in the same pass as the redesign.
+  // Do NOT add a second interval alongside it.
   const [, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 1000);
@@ -130,9 +151,35 @@ const App = () => {
     toast.success("Imported. Save to encrypt with your passphrase.");
   };
 
-  const handleLock = () => {
-    lockRef.current?.();
+  // Folder keys drop FIRST. `lock()` flushes pending edits and can await a
+  // passphrase prompt for an unsaved draft — chaining `lockAll()` behind it
+  // left every folder key in memory for as long as that prompt stayed open,
+  // after the user had already clicked "Lock everything now".
+  //
+  // The toast lands AFTER the lock finishes, not between the two steps: `lock()`
+  // can await a passphrase prompt for an unsaved draft (branch 2), so announcing
+  // "Session locked" first put the confirmation on screen ahead of the prompt —
+  // and a failed final save then toasted its error after the success message.
+  const handleLock = async () => {
+    folders.lockAll();
+    await lockRef.current?.();
     toast("Session locked", { icon: "🔒" });
+  };
+
+  // A note deleted from a sidebar row may be the one the editor is holding
+  // open. Clearing App state is NOT enough: the session key, salt and folder id
+  // live in refs inside `useNoteSession`, and left in place they point at a
+  // deleted record — `lock()` would then flush a brand-new note under the
+  // deleted note's key, salt and folder. Run the hook's own teardown, the same
+  // one every editor delete path ends in.
+  //
+  // Awaited, and called by `NoteList` BEFORE it destroys anything, so the
+  // pending autosave is cancelled while the record still exists.
+  const handleNoteDeleted = async (noteId) => {
+    if (noteId !== currentId) return;
+    setSelectedNote(null);
+    setIsComposingNew(false);
+    await noteDeletedRef.current?.();
   };
 
   const handleLogout = () => {
@@ -156,10 +203,10 @@ const App = () => {
   };
 
   return (
-    <FolderProvider>
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-surface font-body text-on-surface selection:bg-vault-primary/30">
       <TopNav
         isUnlocked={isUnlockedRef.current?.() ?? false}
+        unlockedFolderCount={unlockedIds.length}
         onLock={handleLock}
         cloudState={cloud.state}
         cloudLatest={cloud.latest}
@@ -194,6 +241,7 @@ const App = () => {
             handleImportNote(payload);
           }}
           onNotesChanged={(next) => setNotes(next)}
+          onNoteDeleted={handleNoteDeleted}
           onNewNote={() => {
             setNotesOpen(false);
             return handleNewNote();
@@ -202,6 +250,9 @@ const App = () => {
           onActiveFolderChange={setActiveFolderId}
           isComposingNew={isComposingNew}
           isNoteUnlocked={isUnlockedRef.current?.() ?? false}
+          folderDialog={folderDialog}
+          onFolderDialogChange={setFolderDialog}
+          importRequest={importRequest}
         />
         <Markdown
           selectedNote={selectedNote}
@@ -217,8 +268,12 @@ const App = () => {
           onLockRef={lockRef}
           onIsUnlockedRef={isUnlockedRef}
           onSaveBeforeNewRef={saveBeforeNewRef}
+          onNoteDeletedRef={noteDeletedRef}
           activeFolderId={activeFolderId}
           isComposingNew={isComposingNew}
+          onNewNote={handleNewNote}
+          onNewFolder={() => setFolderDialog({ mode: "create" })}
+          onImport={() => setImportRequest((n) => n + 1)}
         />
       </main>
       <BackupPanel
@@ -252,7 +307,6 @@ const App = () => {
         }}
       />
     </div>
-    </FolderProvider>
   );
 };
 

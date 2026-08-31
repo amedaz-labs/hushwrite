@@ -17,6 +17,29 @@ import HwriteFolderImportDialog from "./HwriteFolderImportDialog";
 import HwriteExportDialog from "./HwriteExportDialog";
 import FolderRow from "./FolderRow";
 import FolderFormDialog from "./FolderFormDialog";
+import TreeRow, { RowMenuTrigger } from "./TreeRow";
+import NoteActionsMenu from "./NoteActionsMenu";
+import NoteInfoDialog from "./NoteInfoDialog";
+import DeleteModal from "./DeleteModal";
+import { useNoteExports } from "@/hooks/useNoteExports";
+import {
+  ChevronDown,
+  FileText,
+  FolderPlus,
+  Lock,
+  LockOpen,
+  PenLine,
+  Plus,
+  Upload,
+} from "lucide-react";
+import {
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuItemText,
+  MenuSeparator,
+  MenuTrigger,
+} from "@/components/ui/menu";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -28,15 +51,25 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useFolders } from "@/lib/folders";
-import { decryptContent, encryptContent } from "../js/crypto";
-import { saveNote, getAllNotes } from "../js/db";
+import { decryptContent, deriveKey, encryptContent } from "../js/crypto";
+import {
+  saveNote,
+  getAllNotes,
+  getNote,
+  deleteImage,
+  deleteNote as dbDeleteNote,
+} from "../js/db";
+
+// A locked note older than 30 days can be dropped without a passphrase — the
+// same escape hatch the editor's locked card offers. Module scope, and read
+// only from an event handler: a clock read during render is unstable.
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const isForceDeletable = (note) =>
+  !!note.createdAt &&
+  Date.now() - new Date(note.createdAt).getTime() >= THIRTY_DAYS_MS;
 
 const toBytes = (v) =>
   v instanceof Uint8Array ? v : v ? new Uint8Array(v) : null;
-
-const Icon = ({ name, className }) => (
-  <span className={cn("material-symbols-outlined", className)}>{name}</span>
-);
 
 const formatTimestamp = (ts) => {
   if (!ts) return "";
@@ -57,59 +90,34 @@ const formatTimestamp = (ts) => {
   });
 };
 
-const NoteRow = ({ note, isActive, title, unlocked, indented, onSelect }) => {
-  const displayTitle =
-    title && title.trim()
-      ? title
-      : isActive
-        ? "Untitled note"
-        : "Encrypted note";
-  const encrypted = !title && !isActive;
+// The lock slot every row shares: colour plus one glyph, never doubled.
+const LockDot = ({ unlocked }) => (
+  <span
+    aria-hidden="true"
+    className={cn(
+      "flex h-4 w-4 shrink-0 items-center justify-center",
+      unlocked ? "text-ok" : "text-outline",
+    )}
+  >
+    {unlocked ? (
+      <LockOpen className="h-[15px] w-[15px]" strokeWidth={1.7} />
+    ) : (
+      <Lock className="h-[15px] w-[15px]" strokeWidth={1.7} />
+    )}
+  </span>
+);
 
-  return (
-    <button
-      onClick={onSelect}
-      aria-current={isActive ? "true" : undefined}
-      className={cn(
-        "group relative block w-full cursor-pointer overflow-hidden border-l-[3px] py-2.5 pr-3 text-left transition-all duration-200",
-        indented ? "pl-9" : "pl-3",
-        isActive
-          ? "border-vault-primary bg-gradient-to-r from-vault-primary/12 via-vault-primary/6 to-transparent"
-          : "border-transparent hover:bg-surface-container",
-      )}
-    >
-      <div className="flex items-center gap-2">
-        <Icon
-          name={unlocked ? "description" : "lock"}
-          className={cn(
-            "shrink-0 text-base",
-            isActive ? "text-vault-primary" : "text-outline/70",
-          )}
-        />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-sm",
-            isActive
-              ? "font-semibold text-vault-primary"
-              : encrypted
-                ? "text-on-surface-variant"
-                : "text-on-surface",
-          )}
-        >
-          {displayTitle}
-        </span>
-        <span
-          className={cn(
-            "shrink-0 text-[10px] tabular-nums",
-            isActive ? "text-vault-primary/70" : "text-outline",
-          )}
-        >
-          {formatTimestamp(note.updatedAt || note.createdAt)}
-        </span>
-      </div>
-    </button>
-  );
-};
+// A real heading, not a styled div: these are the only structural landmarks in
+// a rail that can run to hundreds of rows, and a screen-reader user navigating
+// by heading has nothing else to jump between.
+const GroupLabel = ({ children, count }) => (
+  <h2 className="flex items-center justify-between px-2 pb-1 pt-3 text-[10.5px] font-bold uppercase tracking-[0.09em] text-outline">
+    <span>{children}</span>
+    <span className="font-semibold tracking-normal opacity-75 tabular-nums">
+      {count}
+    </span>
+  </h2>
+);
 
 const NoteList = ({
   open = false,
@@ -120,11 +128,19 @@ const NoteList = ({
   onSelectNote,
   onImportNote,
   onNotesChanged,
+  // Called after a row-level delete so App can clear the editor if the note it
+  // was pointed at just went away.
+  onNoteDeleted,
   onNewNote,
   activeFolderId = null,
   onActiveFolderChange,
   isComposingNew = false,
   isNoteUnlocked = false,
+  // Lifted to App so the editor's empty state can trigger the same two
+  // entry points this sidebar owns.
+  folderDialog = null, // { mode, folderId } | null
+  onFolderDialogChange,
+  importRequest = 0, // nonce — each bump opens the file picker
 }) => {
   const fileInputRef = useRef(null);
   const [importState, setImportState] = useState(null);
@@ -133,12 +149,20 @@ const NoteList = ({
   const [dragActive, setDragActive] = useState(false);
   const [expanded, setExpanded] = useState([]);
   const [folderTitles, setFolderTitles] = useState({});
-  const [dialog, setDialog] = useState(null); // { mode, folderId }
+  const setDialog = (next) => onFolderDialogChange?.(next);
+  const dialog = folderDialog;
   const [deleteFolderTarget, setDeleteFolderTarget] = useState(null);
+  // Row-level note actions. Every row carries a `⋯`; without these the only
+  // way to delete or inspect a note was to open it and wait for it to unlock.
+  const [deleteNoteTarget, setDeleteNoteTarget] = useState(null);
+  const [infoTarget, setInfoTarget] = useState(null);
   // An import whose destination folder isn't unlocked yet. Flushed by the
   // effect below the moment that folder's key becomes available.
   const [pendingImport, setPendingImport] = useState(null);
   const claimedImportRef = useRef(null);
+  // The export dialogs live here, not on a row: a row unmounts its menu when
+  // the pointer leaves it, which would take a half-typed passphrase with it.
+  const noteExports = useNoteExports();
 
   const folders = useFolders();
   const {
@@ -150,6 +174,11 @@ const NoteList = ({
   } = folders;
 
   const activeFolder = folderList.find((f) => f.id === activeFolderId) || null;
+  // States passphrase scope at creation time — the one thing people misread
+  // about the model. Do not drop it.
+  const destinationHint = activeFolder
+    ? `New notes go in "${activeFolder.name}" · shared passphrase`
+    : "New notes carry their own passphrase";
 
   const byFolder = useMemo(() => {
     const ts = (n) => new Date(n.updatedAt || n.createdAt || 0).getTime();
@@ -164,6 +193,14 @@ const NoteList = ({
   }, [notes]);
 
   const rootNotes = byFolder.get(null) || [];
+
+  // The hidden file input lives here (it is the import mechanism), but the
+  // editor's empty state offers "Import" too. A nonce bump opens the picker.
+  // No state is set, so this stays a pure DOM side effect.
+  useEffect(() => {
+    if (!importRequest) return;
+    fileInputRef.current?.click();
+  }, [importRequest]);
 
   // A locked folder can't take new notes — drop the "new notes go here"
   // pointer as soon as its key goes away.
@@ -294,6 +331,20 @@ const NoteList = ({
     // not something the previous lock has any say over.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lockEpoch]);
+
+  // Same rule for the export dialogs and the row info dialog: a half-finished
+  // export outlives its folder key otherwise, and the info dialog is literally
+  // holding the note's decrypted markdown.
+  const closeExports = noteExports.close;
+  useEffect(() => {
+    if (!lockEpoch) return;
+    closeExports();
+    // Synchronous for the same reason the pending-import clear above is: the
+    // info dialog is holding decrypted markdown, and it must not survive into
+    // one more render than the key did.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setInfoTarget(null);
+  }, [lockEpoch, closeExports]);
 
   const toggleFolder = (folder) => {
     setExpanded((prev) =>
@@ -470,24 +521,152 @@ const NoteList = ({
     return titleCache[note.id] || folderTitles[note.id] || note.title || null;
   };
 
-  const renderNote = (note, indented) => (
-    <NoteRow
-      key={note.id}
-      note={note}
-      indented={indented}
-      isActive={note.id === currentId}
-      title={resolveTitle(note)}
-      unlocked={
-        note.folderId
-          ? isFolderUnlocked(note.folderId)
-          : note.id === currentId && isNoteUnlocked
+  // Plaintext for a note the sidebar can already open — i.e. one whose folder
+  // key is in memory. Root notes are deliberately not covered: their key only
+  // ever exists inside the editor session, so their export lives there.
+  const readNoteContent = async (note) => {
+    const entry = note.folderId ? getFolderKey(note.folderId) : null;
+    if (!entry) throw new Error("Unlock the folder to export this note.");
+    const markdown = await decryptContent(
+      toBytes(note.ciphertext),
+      entry.key,
+      toBytes(note.iv),
+    );
+    let title = note.title || "Untitled";
+    if (note.titleCiphertext && note.titleIv) {
+      title = await decryptContent(
+        toBytes(note.titleCiphertext),
+        entry.key,
+        toBytes(note.titleIv),
+      );
+    }
+    return { title, markdown };
+  };
+
+  // Info for one row. When the sidebar can decrypt the note it shows real
+  // stats; when it can't, `markdown: null` tells the dialog to say so rather
+  // than report a confident zero.
+  // `section` is which card the menu item asked for ("move"), so "Move to
+  // folder…" lands on the move card rather than on a word-count grid.
+  const openNoteInfo = async (note, section = null) => {
+    let content = null;
+    if (note.folderId && isFolderUnlocked(note.folderId)) {
+      try {
+        content = await readNoteContent(note);
+      } catch {
+        /* fall through to the locked presentation */
       }
-      onSelect={() => {
-        onActiveFolderChange?.(note.folderId || null);
-        onSelectNote(note);
-      }}
-    />
-  );
+    }
+    setInfoTarget({
+      note,
+      section,
+      title: content?.title || resolveTitle(note) || "Encrypted note",
+      markdown: content ? content.markdown : null,
+    });
+  };
+
+  const removeNote = async (note) => {
+    // FIRST, before anything is destroyed. The editor may be holding this exact
+    // record open; this tears its session down and — critically — cancels the
+    // pending autosave synchronously. Run after `dbDeleteNote`, a debounce timer
+    // already at its deadline could fire in between and `put` the note straight
+    // back with a fresh `createdAt` and no image blobs.
+    await onNoteDeleted?.(note.id);
+    // Re-read rather than trusting the `notes` prop, exactly as every editor
+    // delete path does: between a save and the `setNotes` that follows it, the
+    // prop's `imageIds` is one save behind, and GC'ing from the stale list
+    // orphans the blobs a newer save added — unencrypted, and readable.
+    const fresh = (await getNote(note.id)) ?? note;
+    if (fresh.imageIds?.length) {
+      await Promise.all(fresh.imageIds.map((id) => deleteImage(id)));
+    }
+    await dbDeleteNote(note.id);
+    onNotesChanged?.(await getAllNotes());
+    toast.success("Note deleted!");
+  };
+
+  // Mirrors the editor's three delete paths: a note in an unlocked folder is
+  // already authorized by the folder key (confirm only); anything else has to
+  // prove the passphrase, with the 30-day escape hatch offered inline.
+  //
+  // The age is resolved when the row is clicked, not during render — a clock
+  // read while rendering is unstable across re-renders.
+  const requestDeleteNote = (note) =>
+    setDeleteNoteTarget({ note, canForceDelete: isForceDeletable(note) });
+  const deleteAuthorizedByFolder =
+    !!deleteNoteTarget?.note.folderId &&
+    isFolderUnlocked(deleteNoteTarget.note.folderId);
+
+  const renderNote = (note, indented) => {
+    const isActive = note.id === currentId;
+    const title = resolveTitle(note);
+    // A folder note rides on its folder's key. A root note is only "unlocked"
+    // when it is *the* open note — nothing else can have decrypted it.
+    const unlocked = note.folderId
+      ? isFolderUnlocked(note.folderId)
+      : isActive && isNoteUnlocked;
+    const displayTitle =
+      title && title.trim()
+        ? title
+        : isActive
+          ? "Untitled note"
+          : "Encrypted note";
+    const encrypted = !title && !isActive;
+    const canExport = !!note.folderId && isFolderUnlocked(note.folderId);
+
+    return (
+      <TreeRow
+        key={note.id}
+        indented={indented}
+        icon={FileText}
+        name={displayTitle}
+        selected={isActive}
+        dimmed={encrypted}
+        title={displayTitle}
+        // A note inside a folder is unlocked iff its folder is, and the folder
+        // row two pixels above already says so. Repeating the glyph on every
+        // child turns a 12-note folder into 13 identical padlocks.
+        lock={indented ? null : <LockDot unlocked={unlocked} />}
+        meta={formatTimestamp(note.updatedAt || note.createdAt)}
+        // EVERY row gets a `⋯`. Delete and info work whether or not the
+        // sidebar can read the note; only export needs plaintext, and it says
+        // why it's unavailable instead of vanishing. (Dropping the trigger on
+        // some rows also left the tree with a ragged right edge.)
+        menu={({ onOpenChange }) => (
+          <NoteActionsMenu
+            onOpenChange={onOpenChange}
+            trigger={
+              <RowMenuTrigger aria-label={`Actions for ${displayTitle}`} />
+            }
+            // Closes over CIPHERTEXT and re-derives at confirm time, so a lock
+            // between opening the dialog and confirming makes this throw.
+            getContent={() => readNoteContent(note)}
+            noteExports={noteExports}
+            canExport={canExport}
+            exportDisabledReason={
+              note.folderId
+                ? "Unlock the folder to export it"
+                : "Unlock the note to export it"
+            }
+            onInfo={() => openNoteInfo(note)}
+            // Moving re-keys the note. Doing that to the note the editor is
+            // currently holding open would strand its session key, so the
+            // sidebar only offers it for notes it isn't editing.
+            onMove={
+              canExport && !isActive
+                ? () => openNoteInfo(note, "move")
+                : undefined
+            }
+            onDelete={() => requestDeleteNote(note)}
+          />
+        )}
+        onActivate={() => {
+          onActiveFolderChange?.(note.folderId || null);
+          onSelectNote(note);
+        }}
+      />
+    );
+  };
 
   const dialogFolder = dialog
     ? folderList.find((f) => f.id === dialog.folderId)
@@ -523,7 +702,11 @@ const NoteList = ({
   };
 
   return (
-    <section
+    // A landmark, not a bare <section>: this is the app's navigation, and it is
+    // the one region a keyboard user needs to be able to skip past — 50 notes is
+    // ~106 tab stops before the editor.
+    <nav
+      aria-label="Notes and folders"
       onDragOver={(e) => {
         e.preventDefault();
         if (!dragActive) setDragActive(true);
@@ -534,68 +717,82 @@ const NoteList = ({
       }}
       onDrop={onDrop}
       className={cn(
-        "invisible absolute inset-y-0 left-0 z-40 flex w-72 max-w-[85%] shrink-0 -translate-x-full flex-col border-r border-outline-variant/10 bg-surface-container-lowest transition-[transform,visibility] duration-200 ease-out md:visible md:static md:max-w-none md:translate-x-0",
+        "invisible absolute inset-y-0 left-0 z-40 flex w-72 max-w-[85%] shrink-0 -translate-x-full flex-col border-r border-outline-variant/55 bg-surface-container-lowest transition-[transform,visibility] duration-200 ease-out md:visible md:static md:max-w-none md:translate-x-0",
         open && "visible translate-x-0",
         dragActive && "ring-2 ring-vault-primary/60 ring-inset",
       )}
     >
-      <div className="border-b border-outline-variant/10 p-3">
-        <div className="mb-2.5 flex items-center justify-between px-1">
-          <h2 className="text-[11px] font-semibold uppercase tracking-widest text-outline">
-            Notes
-          </h2>
-          <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-semibold tabular-nums text-on-surface-variant">
-            {notes.length}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
+      <div className="flex flex-col gap-1.5 p-2.5 pb-2">
+        {/* One primary action, split. The secondary creates live behind the
+            caret so they stop outranking the notes themselves. */}
+        <div className="flex gap-px">
           <button
             onClick={onNewNote}
-            className="group flex flex-col items-center gap-1.5 rounded-xl border border-vault-primary/25 bg-primary-container/10 px-2 py-3 transition-all hover:border-vault-primary/50 hover:bg-primary-container/20 active:scale-[0.98]"
+            title={destinationHint}
+            aria-label={`New note — ${destinationHint}`}
+            className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-l-lg bg-vault-primary text-[13px] font-semibold text-on-primary-fixed transition-[filter] hover:brightness-110 active:scale-[0.985]"
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-vault-primary/15 text-vault-primary">
-              <Icon name="add" className="text-[18px]" />
-            </span>
-            <span className="text-xs font-semibold text-vault-primary">
-              New note
-            </span>
-            <span className="w-full truncate text-center text-[10px] leading-tight text-vault-primary/60">
-              {activeFolder ? `in ${activeFolder.name}` : "own passphrase"}
-            </span>
+            <Plus className="h-[15px] w-[15px]" strokeWidth={2.2} />
+            New note
           </button>
-
-          <button
-            onClick={() => setDialog({ mode: "create" })}
-            className="group flex flex-col items-center gap-1.5 rounded-xl border border-outline-variant/20 bg-surface-container px-2 py-3 transition-all hover:border-outline-variant/40 hover:bg-surface-container-high active:scale-[0.98]"
-          >
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-container-highest text-on-surface-variant">
-              <Icon name="create_new_folder" className="text-[18px]" />
-            </span>
-            <span className="text-xs font-semibold text-on-surface">
-              New folder
-            </span>
-            <span className="w-full truncate text-center text-[10px] leading-tight text-outline">
-              shared passphrase
-            </span>
-          </button>
+          <Menu>
+            <MenuTrigger asChild>
+              <button
+                aria-label="More new items"
+                className="flex h-8 w-7 items-center justify-center rounded-r-lg border-l border-on-primary-fixed/20 bg-vault-primary text-on-primary-fixed transition-[filter] hover:brightness-110"
+              >
+                <ChevronDown className="h-[15px] w-[15px]" strokeWidth={2.2} />
+              </button>
+            </MenuTrigger>
+            <MenuContent align="end">
+              <MenuItem onSelect={() => setDialog({ mode: "create" })}>
+                <FolderPlus className="mt-px h-4 w-4 shrink-0 text-outline" strokeWidth={1.7} />
+                <MenuItemText
+                  label="New folder"
+                  hint="One passphrase for everything inside"
+                />
+              </MenuItem>
+              <MenuSeparator />
+              <MenuItem onSelect={() => fileInputRef.current?.click()}>
+                <Upload className="mt-px h-4 w-4 shrink-0 text-outline" strokeWidth={1.7} />
+                <MenuItemText
+                  label="Import .hwrite…"
+                  hint="A single note or a whole folder bundle"
+                />
+              </MenuItem>
+            </MenuContent>
+          </Menu>
         </div>
+        {/* The one place the UI states passphrase scope at creation time. */}
+        <p className="truncate px-0.5 text-[11px] text-outline">
+          {destinationHint}
+        </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      {/* A plain list of rows, not an ARIA tree: nothing here implements the
+          arrow-key navigation `role="tree"` promises. See TreeRow. */}
+      <div className="flex-1 overflow-y-auto px-2 pb-3">
         {isComposingNew && !currentId && (
-          <div className="block w-full border-l-2 border-vault-primary bg-surface-container-high/50 p-3 text-left">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="truncate text-sm font-semibold text-on-surface">
-                {currentTitle?.trim() || "Untitled"}
-              </h3>
-              <span className="rounded bg-primary-container/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-vault-primary">
-                Draft
+          <TreeRow
+            icon={FileText}
+            name={currentTitle?.trim() || "Untitled"}
+            selected
+            title="Unsaved draft — save it to encrypt it"
+            lock={
+              <span
+                aria-hidden="true"
+                className="flex h-4 w-4 shrink-0 items-center justify-center text-warn"
+              >
+                <PenLine className="h-[15px] w-[15px]" strokeWidth={1.7} />
               </span>
-            </div>
-          </div>
+            }
+            meta="Draft"
+          />
         )}
 
+        {folderList.length > 0 && (
+          <GroupLabel count={folderList.length}>Folders</GroupLabel>
+        )}
         {folderList.map((folder) => {
           const contained = byFolder.get(folder.id) || [];
           return (
@@ -617,7 +814,7 @@ const NoteList = ({
               onDelete={() => setDeleteFolderTarget(folder)}
             >
               {contained.length === 0 ? (
-                <p className="px-3 py-2 pl-9 text-[11px] text-outline">
+                <p className="py-1 pl-9 text-[12px] italic text-outline">
                   Empty folder
                 </p>
               ) : (
@@ -627,26 +824,29 @@ const NoteList = ({
           );
         })}
 
+        {rootNotes.length > 0 && (
+          <GroupLabel count={rootNotes.length}>Notes</GroupLabel>
+        )}
         {rootNotes.map((note) => renderNote(note, false))}
 
         {folderList.length === 0 &&
           rootNotes.length === 0 &&
           !isComposingNew && (
             <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
-              <Icon name="description" className="text-2xl text-outline/60" />
+              <FileText className="h-6 w-6 text-outline" strokeWidth={1.5} />
               <p className="text-xs text-outline">No notes yet</p>
             </div>
           )}
       </div>
 
-      <div className="border-t border-outline-variant/10 p-3">
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg text-xs font-medium text-outline transition-colors hover:text-on-surface md:min-h-0"
-        >
-          <Icon name="file_upload" className="text-base" />
-          Import .hwrite
-        </button>
+      {/* The app is h-[100dvh] and this footer is the last thing in it — in
+          standalone PWA mode on a notched iPhone it would otherwise sit under
+          the home indicator. */}
+      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-outline-variant/45 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11.5px] text-outline">
+        <span className="truncate">
+          {notes.length} note{notes.length === 1 ? "" : "s"} ·{" "}
+          {folderList.length} folder{folderList.length === 1 ? "" : "s"}
+        </span>
         <input
           ref={fileInputRef}
           type="file"
@@ -655,6 +855,10 @@ const NoteList = ({
           onChange={onFilePick}
         />
       </div>
+
+      {/* Owned by the sidebar, never by a row: a row tears its menu down on
+          mouseleave, which would take a half-typed export passphrase with it. */}
+      {noteExports.dialogs}
 
       {dragActive && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-surface/60 text-xs font-medium text-vault-primary backdrop-blur-sm">
@@ -698,6 +902,61 @@ const NoteList = ({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+      )}
+
+      {infoTarget && (
+        <NoteInfoDialog
+          open
+          onOpenChange={(v) => !v && setInfoTarget(null)}
+          focusSection={infoTarget.section}
+          markdown={infoTarget.markdown}
+          title={infoTarget.title}
+          folderName={
+            folderList.find((f) => f.id === infoTarget.note.folderId)?.name ||
+            null
+          }
+          isUnlocked={infoTarget.markdown !== null}
+          canMove={
+            infoTarget.markdown !== null && infoTarget.note.id !== currentId
+          }
+          folders={folderList}
+          currentFolderId={infoTarget.note.folderId || null}
+          isFolderUnlocked={isFolderUnlocked}
+          onMoveNote={async (targetFolderId, newPassphrase) => {
+            const entry = getFolderKey(infoTarget.note.folderId);
+            await folders.moveNoteToFolder(infoTarget.note.id, targetFolderId, {
+              sourceKey: entry?.key,
+              newPassphrase,
+            });
+            onNotesChanged?.(await getAllNotes());
+          }}
+        />
+      )}
+
+      {deleteNoteTarget && (
+        <DeleteModal
+          requirePassphrase={!deleteAuthorizedByFolder}
+          canForceDelete={deleteNoteTarget.canForceDelete}
+          verify={async (pw) => {
+            const { note } = deleteNoteTarget;
+            const key = await deriveKey(pw, toBytes(note.salt));
+            await decryptContent(
+              toBytes(note.ciphertext),
+              key,
+              toBytes(note.iv),
+            );
+          }}
+          onCancel={() => setDeleteNoteTarget(null)}
+          onConfirm={async () => {
+            const { note } = deleteNoteTarget;
+            setDeleteNoteTarget(null);
+            try {
+              await removeNote(note);
+            } catch (err) {
+              toast.error(err.message || "Delete failed");
+            }
+          }}
+        />
       )}
 
       {exportFolder && (
@@ -830,7 +1089,7 @@ const NoteList = ({
           onCancel={() => setImportState(null)}
         />
       )}
-    </section>
+    </nav>
   );
 };
 

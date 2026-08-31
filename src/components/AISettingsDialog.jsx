@@ -3,10 +3,59 @@ import toast from "react-hot-toast";
 import { cn } from "@/lib/utils";
 import { useAI } from "@/hooks/useAI";
 import { AI_MODEL_LABEL, AI_MODEL_SIZE_LABEL } from "@/js/ai";
+import {
+  ArrowLeft,
+  CircleAlert,
+  CircleCheck,
+  CirclePause,
+  CloudDownload,
+  Cpu,
+  Download,
+  Info,
+  Lock,
+  Sparkles,
+  Trash2,
+  Zap,
+} from "lucide-react";
 
-const Icon = ({ name, className }) => (
-  <span className={cn("material-symbols-outlined", className)}>{name}</span>
-);
+// Lucide replacements for this panel's former Material Symbols. Sized at 1em
+// so the existing `text-*` classes keep driving the glyph size exactly as the
+// icon font did.
+const GLYPHS = {
+  arrow_back: ArrowLeft,
+  auto_awesome: Sparkles,
+  error: CircleAlert,
+  download: Download,
+  pause_circle: CirclePause,
+  delete: Trash2,
+  bolt: Zap,
+  lock: Lock,
+  memory: Cpu,
+  check_circle: CircleCheck,
+  info: Info,
+  cloud_download: CloudDownload,
+};
+
+const Icon = ({ name, className }) => {
+  const Glyph = GLYPHS[name];
+  if (!Glyph) {
+    // Returning null silently is how six of these names shipped rendering
+    // nothing at all. Fail loudly in dev; degrade quietly in prod.
+    if (import.meta.env.DEV) {
+      console.warn(
+        `[AISettingsDialog] no lucide glyph mapped for icon "${name}"`,
+      );
+    }
+    return null;
+  }
+  return (
+    <Glyph
+      aria-hidden="true"
+      strokeWidth={1.7}
+      className={cn("inline-block h-[1em] w-[1em] shrink-0", className)}
+    />
+  );
+};
 
 const AISettingsDialog = ({ open, onOpenChange }) => {
   const ai = useAI();
@@ -221,7 +270,7 @@ const AISettingsDialog = ({ open, onOpenChange }) => {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="max-h-[85dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-outline-variant/20 bg-surface-container p-5 shadow-2xl sm:p-7"
+            className="max-h-[85dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-outline-variant/70 bg-surface-container p-5 shadow-2xl sm:p-7"
           >
             {pendingConfirm === "disable" ? (
               <>

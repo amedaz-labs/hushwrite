@@ -1,3 +1,25 @@
+// Tailwind 3 can only apply an opacity modifier (`bg-x/30`) to a color it can
+// parse, and it cannot parse a bare `var(--x)` — those classes silently emit
+// no CSS at all. Handing it a *function* takes the `typeof color === 'function'`
+// branch instead, where we get to build the value ourselves.
+//
+// `calc(${opacityValue} * 100%)` rather than `${opacityValue * 100}%` on
+// purpose: `withAlphaVariable` passes the *string* `var(--tw-bg-opacity)`, and
+// arithmetic on that yields NaN. calc() handles a literal and a var alike.
+//
+// HARD BROWSER FLOOR: `color-mix()` is now on the critical path for every
+// colour in the vault palette, not just the opacity variants — a browser that
+// can't parse it drops the whole declaration and renders the PWA effectively
+// unstyled. That means Safari 16.2+, Chrome/Edge 111+, Firefox 113+ (iOS: any
+// browser on iOS 16.2+, since they all use WebKit). Anything older is not
+// supported. Do not "just add one more colour" here without accepting that.
+const tint =
+  (v) =>
+  ({ opacityValue } = {}) =>
+    opacityValue === undefined
+      ? `var(${v})`
+      : `color-mix(in srgb, var(${v}) calc(${opacityValue} * 100%), transparent)`;
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: ["class"],
@@ -54,25 +76,30 @@ export default {
         },
 
         // Vault palette — CSS-var backed so light/dark can swap via :root class
-        "surface": "var(--v-surface)",
-        "surface-dim": "var(--v-surface)",
-        "surface-container-lowest": "var(--v-surface-container-lowest)",
-        "surface-container-low": "var(--v-surface-container-low)",
-        "surface-container": "var(--v-surface-container)",
-        "surface-container-high": "var(--v-surface-container-high)",
-        "surface-container-highest": "var(--v-surface-container-highest)",
-        "surface-variant": "var(--v-surface-container-highest)",
-        "on-surface": "var(--v-on-surface)",
-        "on-background": "var(--v-on-surface)",
-        "on-surface-variant": "var(--v-on-surface-variant)",
-        "outline": "var(--v-outline)",
-        "outline-variant": "var(--v-outline-variant)",
-        "vault-primary": "var(--v-primary)",
-        "primary-container": "var(--v-primary-container)",
-        "on-primary-fixed": "var(--v-on-primary-fixed)",
-        "tertiary": "var(--v-tertiary)",
-        "error-container": "var(--v-error-container)",
-        "on-error": "var(--v-on-error)",
+        "surface": tint("--v-surface"),
+        "surface-dim": tint("--v-surface"),
+        "surface-container-lowest": tint("--v-surface-container-lowest"),
+        "surface-container-low": tint("--v-surface-container-low"),
+        "surface-container": tint("--v-surface-container"),
+        "surface-container-high": tint("--v-surface-container-high"),
+        "surface-container-highest": tint("--v-surface-container-highest"),
+        "surface-variant": tint("--v-surface-container-highest"),
+        "on-surface": tint("--v-on-surface"),
+        "on-background": tint("--v-on-surface"),
+        "on-surface-variant": tint("--v-on-surface-variant"),
+        "outline": tint("--v-outline"),
+        "outline-variant": tint("--v-outline-variant"),
+        "vault-primary": tint("--v-primary"),
+        "primary-container": tint("--v-primary-container"),
+        "on-primary-fixed": tint("--v-on-primary-fixed"),
+        "tertiary": tint("--v-tertiary"),
+        "error-container": tint("--v-error-container"),
+        "on-error": tint("--v-on-error"),
+        // Semantic status tones. `error` in particular had 41 usages and no
+        // key behind it — every one of them painted nothing until now.
+        "ok": tint("--v-ok"),
+        "warn": tint("--v-warn"),
+        "error": tint("--v-error"),
       },
       borderRadius: {
         lg: "var(--radius)",

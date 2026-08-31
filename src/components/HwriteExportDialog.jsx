@@ -120,8 +120,11 @@ const HwriteExportDialog = ({
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
               className="bg-background"
             />
+            {/* Both of these block submission and sit three lines apart in one
+                field group — one colour, and the shadcn token the rest of this
+                dialog is built on. */}
             {tooShort && (
-              <p className="text-xs text-amber-600 dark:text-amber-400">
+              <p className="text-xs text-destructive">
                 Passphrase must be at least 8 characters.
               </p>
             )}

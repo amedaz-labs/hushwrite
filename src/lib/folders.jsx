@@ -65,6 +65,14 @@ export const FolderProvider = ({ children }) => {
     })();
   }, [refreshFolders]);
 
+  // Bumps `lockEpoch` for the same reason `lockAll` does. A note-info dialog or
+  // an export dialog opened from a row in THIS folder is holding that note's
+  // decrypted markdown outside the provider, and the epoch effects are the only
+  // thing that drops it. Locking one folder from its row menu has to honour the
+  // lock as completely as locking everything does.
+  //
+  // Trade-off, accepted: the epoch is global, so this also discards a deferred
+  // import waiting on a *different* folder. Erring toward dropping plaintext.
   const lockFolder = useCallback((id) => {
     setKeys((prev) => {
       if (!prev[id]) return prev;
@@ -72,6 +80,7 @@ export const FolderProvider = ({ children }) => {
       delete next[id];
       return next;
     });
+    setLockEpoch((n) => n + 1);
   }, []);
 
   const lockAll = useCallback(() => {

@@ -1,7 +1,29 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme.jsx";
 import { getUserEmail, api } from "@/js/api";
+import {
+  ArrowLeft,
+  Cloud,
+  CloudCheck,
+  CloudDownload,
+  CloudOff,
+  CloudUpload,
+  Info,
+  KeyRound,
+  Loader2,
+  Lock,
+  LockOpen,
+  LogIn,
+  LogOut,
+  Menu as MenuIcon,
+  Moon,
+  RefreshCw,
+  Sparkles,
+  Sun,
+  User,
+  X,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,93 +31,77 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuLabel,
+  MenuSeparator,
+  MenuTrigger,
+} from "@/components/ui/menu";
 import AISettingsDialog from "./AISettingsDialog";
 
-const Icon = ({ name, className }) => (
-  <span className={cn("material-symbols-outlined", className)}>{name}</span>
-);
+// `getUserEmail()` is empty for a local-only profile, so initials aren't always
+// possible — fall back to a glyph rather than an empty circle.
+const initialsFor = (email) => {
+  if (!email) return null;
+  const name = email.split("@")[0] || "";
+  const parts = name.split(/[._\-+]/).filter(Boolean);
+  const letters = (parts[0]?.[0] || "") + (parts[1]?.[0] || parts[0]?.[1] || "");
+  return letters.toUpperCase() || null;
+};
 
 const ProfileDropdown = ({ onLogout, onChangePassword, onAbout, onAISettings, onSignIn, isLocalOnly = false }) => {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
   const email = getUserEmail();
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    if (open) document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+  const initials = isLocalOnly ? null : initialsFor(email);
 
   return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        title="Account"
-        className="flex h-11 w-11 shrink-0 items-center justify-center gap-1.5 rounded-lg text-outline transition-colors hover:bg-surface-container-high hover:text-on-surface active:scale-95 md:h-auto md:w-auto md:p-2"
-      >
-        <Icon name="account_circle" />
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-[min(14rem,calc(100vw_-_1.5rem))] overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container shadow-xl">
-          {isLocalOnly ? (
-            <div className="border-b border-outline-variant/20 px-4 py-3">
-              <p className="text-xs font-medium text-on-surface-variant">Local only</p>
-              <p className="truncate text-sm font-semibold text-on-surface">No account · not synced</p>
-            </div>
-          ) : email && (
-            <div className="border-b border-outline-variant/20 px-4 py-3">
-              <p className="text-xs font-medium text-on-surface-variant">Signed in as</p>
-              <p className="truncate text-sm font-semibold text-on-surface">{email}</p>
-            </div>
-          )}
-          <div className="py-1">
-            {!isLocalOnly && (
-              <button
-                onClick={() => { setOpen(false); onChangePassword(); }}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-on-surface transition-colors hover:bg-surface-container-high"
-              >
-                <Icon name="lock_reset" className="text-[20px] text-outline" />
-                Change Password
-              </button>
-            )}
-            <button
-              onClick={() => { setOpen(false); onAISettings(); }}
-              className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-on-surface transition-colors hover:bg-surface-container-high"
-            >
-              <Icon name="auto_awesome" className="text-[20px] text-outline" />
-              AI Settings
-            </button>
-            <button
-              onClick={() => { setOpen(false); onAbout(); }}
-              className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-on-surface transition-colors hover:bg-surface-container-high"
-            >
-              <Icon name="info" className="text-[20px] text-outline" />
-              About
-            </button>
-            <div className="my-1 border-t border-outline-variant/20" />
-            {isLocalOnly ? (
-              <button
-                onClick={() => { setOpen(false); onSignIn?.(); }}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm font-medium text-vault-primary transition-colors hover:bg-primary-container/20"
-              >
-                <Icon name="login" className="text-[20px]" />
-                Sign In
-              </button>
-            ) : (
-              <button
-                onClick={() => { setOpen(false); onLogout(); }}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-error transition-colors hover:bg-error/10"
-              >
-                <Icon name="logout" className="text-[20px]" />
-                Sign Out
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+    <Menu>
+      <MenuTrigger asChild>
+        <button
+          title={isLocalOnly ? "Local only — no account" : email || "Account"}
+          aria-label="Account"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-outline-variant/60 bg-surface-container-high text-[11px] font-bold tracking-wide text-on-surface-variant transition-colors hover:bg-surface-container-highest hover:text-on-surface"
+        >
+          {initials || <User className="h-4 w-4" strokeWidth={1.7} />}
+        </button>
+      </MenuTrigger>
+      <MenuContent>
+        <MenuLabel>
+          {isLocalOnly
+            ? "Local only · not synced"
+            : email
+              ? `Signed in as ${email}`
+              : "Account"}
+        </MenuLabel>
+        {!isLocalOnly && (
+          <MenuItem onSelect={onChangePassword}>
+            <KeyRound className="mt-px h-4 w-4 shrink-0 text-outline" strokeWidth={1.7} />
+            Change password
+          </MenuItem>
+        )}
+        <MenuItem onSelect={onAISettings}>
+          <Sparkles className="mt-px h-4 w-4 shrink-0 text-outline" strokeWidth={1.7} />
+          AI settings
+        </MenuItem>
+        <MenuItem onSelect={onAbout}>
+          <Info className="mt-px h-4 w-4 shrink-0 text-outline" strokeWidth={1.7} />
+          About
+        </MenuItem>
+        <MenuSeparator />
+        {isLocalOnly ? (
+          <MenuItem onSelect={() => onSignIn?.()} className="text-vault-primary">
+            <LogIn className="mt-px h-4 w-4 shrink-0" strokeWidth={1.7} />
+            Sign in
+          </MenuItem>
+        ) : (
+          <MenuItem destructive onSelect={onLogout}>
+            <LogOut className="mt-px h-4 w-4 shrink-0" strokeWidth={1.7} />
+            Sign out
+          </MenuItem>
+        )}
+      </MenuContent>
+    </Menu>
   );
 };
 
@@ -164,7 +170,7 @@ const ChangePasswordDialog = ({ open, onOpenChange }) => {
               onChange={(e) => setCurrentPassword(e.target.value)}
               placeholder="••••••••"
               autoFocus
-              className="w-full rounded-lg border border-outline-variant/30 bg-surface-container px-3 py-2.5 text-sm text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none"
+              className="w-full rounded-lg border border-outline/85 bg-surface-container px-3 py-2.5 text-sm text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none"
             />
           </div>
           <div>
@@ -174,7 +180,7 @@ const ChangePasswordDialog = ({ open, onOpenChange }) => {
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full rounded-lg border border-outline-variant/30 bg-surface-container px-3 py-2.5 text-sm text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none"
+              className="w-full rounded-lg border border-outline/85 bg-surface-container px-3 py-2.5 text-sm text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none"
             />
           </div>
           <div>
@@ -184,7 +190,7 @@ const ChangePasswordDialog = ({ open, onOpenChange }) => {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full rounded-lg border border-outline-variant/30 bg-surface-container px-3 py-2.5 text-sm text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none"
+              className="w-full rounded-lg border border-outline/85 bg-surface-container px-3 py-2.5 text-sm text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none"
             />
           </div>
           {error && (
@@ -199,9 +205,9 @@ const ChangePasswordDialog = ({ open, onOpenChange }) => {
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-vault-primary px-4 py-2.5 text-sm font-medium text-on-primary-fixed transition-all hover:scale-[1.01] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? (
-              <Icon name="progress_activity" className="animate-spin text-sm" />
+              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.7} />
             ) : (
-              <Icon name="lock_reset" className="text-sm" />
+              <KeyRound className="h-4 w-4" strokeWidth={1.7} />
             )}
             Change Password
           </button>
@@ -214,13 +220,16 @@ const ChangePasswordDialog = ({ open, onOpenChange }) => {
 const AboutPage = ({ open, onClose }) => {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col bg-surface">
+    // `fixed inset-0` starts at the physical top of the screen, so without the
+    // inset the Back button sits under the status bar on a notched iPhone in
+    // standalone PWA mode.
+    <div className="fixed inset-0 z-[100] flex flex-col bg-surface pt-[env(safe-area-inset-top)]">
       <div className="flex h-16 items-center justify-between px-6">
         <button
           onClick={onClose}
           className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-on-surface-variant transition-colors hover:bg-surface-container-high"
         >
-          <Icon name="arrow_back" className="text-sm" />
+          <ArrowLeft className="h-4 w-4" strokeWidth={1.7} />
           Back
         </button>
       </div>
@@ -248,7 +257,7 @@ const AboutPage = ({ open, onClose }) => {
             maintaining full end-to-end encryption. The server never sees your note content.
           </p>
         </div>
-        <div className="mt-10 border-t border-outline-variant/20 pt-6">
+        <div className="mt-10 border-t border-outline-variant/45 pt-6">
           <p className="text-xs text-outline">
             Made by <span className="font-semibold text-vault-primary">Elissa Tenn</span>, intern at{" "}
             <span className="font-semibold text-vault-primary">Amedaz</span> in Zahle, Lebanon.
@@ -259,34 +268,37 @@ const AboutPage = ({ open, onClose }) => {
   );
 };
 
+// All eight states are load-bearing — `diverged` and `newer-available` in
+// particular are the two that actually need the user's attention, so this does
+// not collapse into a three-state chip.
 const CloudBadge = ({ state, latest, onClick }) => {
   const map = {
     "no-account": {
-      icon: "cloud_off",
+      icon: CloudOff,
       label: "Local only",
       tooltip: "Sign in to set up backup",
       tone: "muted",
     },
     "no-snapshots": {
-      icon: "cloud_upload",
+      icon: CloudUpload,
       label: "Set up backup",
       tooltip: "No backups yet — create your first one",
       tone: "primary",
     },
     "up-to-date": {
-      icon: "cloud_done",
+      icon: CloudCheck,
       label: "Up to date",
       tooltip: "Local matches the latest backup",
-      tone: "success",
+      tone: "ok",
     },
     "needs-backup": {
-      icon: "cloud_upload",
+      icon: CloudUpload,
       label: "Changes not backed up",
       tooltip: "You have local edits since the last backup",
       tone: "primary",
     },
     "newer-available": {
-      icon: "cloud_download",
+      icon: CloudDownload,
       label: latest?.device_label
         ? `Newer backup · ${latest.device_label}`
         : "Newer backup available",
@@ -294,30 +306,31 @@ const CloudBadge = ({ state, latest, onClick }) => {
       tone: "primary",
     },
     diverged: {
-      icon: "cloud_sync",
+      icon: RefreshCw,
       label: "Action needed",
       tooltip: "This device has unsaved changes and another device pushed a newer backup. Open Backup to choose what to keep.",
       tone: "warn",
     },
     error: {
-      icon: "cloud_off",
+      icon: CloudOff,
       label: "Backup unavailable",
       tooltip: "Couldn't reach the backup server",
       tone: "muted",
     },
     loading: {
-      icon: "progress_activity",
+      icon: Loader2,
       label: "Checking…",
       tooltip: "Checking backup status",
       tone: "muted",
     },
   };
   const entry = map[state] || map.loading;
+  const Glyph = entry.icon || Cloud;
   const toneClass = {
-    muted: "border-outline-variant/30 bg-surface-container text-on-surface-variant",
-    primary: "border-vault-primary/40 bg-primary-container/15 text-vault-primary",
-    success: "border-vault-primary/30 bg-primary-container/10 text-vault-primary",
-    warn: "border-error/40 bg-error/10 text-error",
+    muted: "text-outline hover:bg-surface-container hover:text-on-surface",
+    primary: "text-vault-primary hover:bg-vault-primary/15",
+    ok: "text-ok hover:bg-ok/15",
+    warn: "bg-warn/15 text-warn hover:bg-warn/25",
   }[entry.tone];
 
   return (
@@ -325,96 +338,127 @@ const CloudBadge = ({ state, latest, onClick }) => {
       onClick={onClick}
       title={entry.tooltip}
       className={cn(
-        "flex min-h-[44px] min-w-0 shrink items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-all hover:scale-[1.02] active:scale-95 sm:px-3 md:min-h-0",
+        "flex h-9 min-w-0 shrink items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition-colors md:h-8",
         toneClass,
       )}
     >
-      <Icon
-        name={entry.icon}
-        className={cn("text-sm", state === "loading" && "animate-spin")}
+      <Glyph
+        className={cn("h-[18px] w-[18px] shrink-0", state === "loading" && "animate-spin")}
+        strokeWidth={1.7}
       />
       <span className="hidden truncate lg:inline">{entry.label}</span>
     </button>
   );
 };
 
-const TopNav = ({ isUnlocked, onLock, cloudState = "loading", cloudLatest = null, onOpenBackup, isLocalOnly = false, onLogout, onSignIn, onToggleNotes, notesOpen = false }) => {
+// The single canonical lock indicator. `isUnlocked` alone is the wrong input —
+// it only reports the editor session, not folder keys — so folder count is
+// folded in. No countdown: the session clock and the folder clock reset on
+// different events, and one number cannot honestly represent both.
+const SessionPill = ({ unlocked, onLock }) => (
+  // `aria-disabled` rather than `disabled`: the title is the ONLY place the
+  // 15-minute auto-lock rule is written down, and a `disabled` button is
+  // unreachable by keyboard, so that sentence would be too.
+  <button
+    type="button"
+    onClick={unlocked ? onLock : undefined}
+    aria-disabled={!unlocked}
+    title={
+      unlocked
+        ? "Lock everything now · auto-locks after 15 min idle"
+        : "Nothing is unlocked · sessions auto-lock after 15 min idle"
+    }
+    className={cn(
+      "flex h-9 shrink-0 items-center gap-2 rounded-full pl-2.5 pr-3 text-xs font-semibold transition-colors md:h-8",
+      unlocked
+        ? "bg-vault-primary/15 text-vault-primary hover:bg-vault-primary/25"
+        : "cursor-default bg-surface-container text-on-surface-variant",
+    )}
+  >
+    {unlocked ? (
+      <LockOpen className="h-[15px] w-[15px]" strokeWidth={1.9} />
+    ) : (
+      <Lock className="h-[15px] w-[15px] text-outline" strokeWidth={1.9} />
+    )}
+    <span>{unlocked ? "Unlocked" : "Locked"}</span>
+    {/* The 15-minute rule was disclosed ONLY through `title`, which is
+        hover-only — unreachable by keyboard and by touch. Folded into the
+        accessible name instead, where it is announced with the state. */}
+    <span className="sr-only">
+      {unlocked
+        ? ". Activate to lock everything now. Auto-locks after 15 minutes idle."
+        : ". Nothing is unlocked. Sessions auto-lock after 15 minutes idle."}
+    </span>
+  </button>
+);
+
+const TopNav = ({ isUnlocked, unlockedFolderCount = 0, onLock, cloudState = "loading", cloudLatest = null, onOpenBackup, isLocalOnly = false, onLogout, onSignIn, onToggleNotes, notesOpen = false }) => {
   const { theme, toggleTheme } = useTheme();
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const anythingUnlocked = !!isUnlocked || unlockedFolderCount > 0;
 
   return (
     <>
-      <header className="sticky top-0 z-50 flex h-[calc(4rem_+_env(safe-area-inset-top))] w-full items-center justify-between gap-2 bg-surface px-3 pt-[env(safe-area-inset-top)] sm:px-6">
-        <div className="flex min-w-0 items-center gap-3 md:gap-8">
-          <button
-            onClick={onToggleNotes}
-            aria-label={notesOpen ? "Close notes" : "Open notes"}
-            aria-expanded={notesOpen}
-            className="-ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-outline transition-colors hover:bg-surface-container-high hover:text-on-surface active:scale-95 md:hidden"
-          >
-            <Icon name={notesOpen ? "close" : "menu"} />
-          </button>
-          <div className="flex min-w-0 items-center gap-2.5">
-            <img
-              src="/panda-192.png"
-              alt=""
-              className="h-9 w-9 shrink-0 rounded-full object-cover"
-            />
-            <div className="flex min-w-0 flex-col justify-center">
-              <span className="truncate text-xl font-semibold leading-none tracking-tighter text-on-surface">
-                Hushwrite
-              </span>
-              <span
-                className={cn(
-                  "mt-1 hidden truncate text-[10px] uppercase tracking-widest sm:block",
-                  isUnlocked ? "text-vault-primary/60" : "text-outline",
-                )}
-              >
-                {isUnlocked ? "Secure session" : "Locked"}
-              </span>
-            </div>
-          </div>
+      {/* One row. The safe-area padding stays — a notched iOS device puts the
+          status bar exactly where this header would otherwise sit. */}
+      <header className="sticky top-0 z-50 flex h-[calc(3.5rem_+_env(safe-area-inset-top))] w-full items-center gap-2 border-b border-outline-variant/55 bg-surface px-2 pt-[env(safe-area-inset-top)] sm:px-4">
+        <button
+          onClick={onToggleNotes}
+          aria-label={notesOpen ? "Close notes" : "Open notes"}
+          aria-expanded={notesOpen}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-outline transition-colors hover:bg-surface-container hover:text-on-surface md:hidden"
+        >
+          {notesOpen ? (
+            <X className="h-[18px] w-[18px]" strokeWidth={1.7} />
+          ) : (
+            <MenuIcon className="h-[18px] w-[18px]" strokeWidth={1.7} />
+          )}
+        </button>
+        <div className="flex min-w-0 items-center gap-2">
+          <img
+            src="/panda-192.png"
+            alt=""
+            className="h-6 w-6 shrink-0 rounded-full object-cover"
+          />
+          <span className="truncate text-[14.5px] font-semibold tracking-tight text-on-surface">
+            Hushwrite
+          </span>
         </div>
-        <div className="flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-4">
+
+        <span className="flex-1" />
+
+        <div className="flex min-w-0 shrink items-center gap-1">
           <CloudBadge
             state={isLocalOnly ? "no-account" : cloudState}
             latest={cloudLatest}
             onClick={isLocalOnly ? onSignIn : onOpenBackup}
           />
+          <SessionPill unlocked={anythingUnlocked} onLock={onLock} />
+          <span className="mx-1 hidden h-5 w-px bg-outline-variant/50 sm:block" />
           <button
-            onClick={onLock}
-            disabled={!isUnlocked}
-            className={cn(
-"flex min-h-[44px] shrink-0 items-center gap-2 rounded-lg bg-surface-container-high px-3 py-1.5 text-sm font-medium text-vault-primary transition-all hover:bg-surface-container-highest active:scale-95 md:min-h-0",
-              !isUnlocked && "cursor-not-allowed opacity-50",
-            )}
+            onClick={toggleTheme}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label="Toggle theme"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-outline transition-colors hover:bg-surface-container hover:text-on-surface md:h-8 md:w-8"
           >
-            <Icon name={isUnlocked ? "lock_open" : "lock"} className="text-sm" />
-            <span className="hidden sm:inline">
-              {isUnlocked ? "Lock Session" : "Locked"}
-            </span>
-          </button>
-          <div className="flex shrink-0 items-center gap-0 sm:gap-2">
-            <button
-              onClick={toggleTheme}
-              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-outline transition-colors hover:text-on-surface active:scale-95 md:h-auto md:w-auto md:p-2"
-            >
-              <Icon name={theme === "dark" ? "light_mode" : "dark_mode"} />
-            </button>
-            {onLogout && (
-              <ProfileDropdown
-                onLogout={onLogout}
-                onChangePassword={() => setChangePasswordOpen(true)}
-                onAbout={() => setAboutOpen(true)}
-                onAISettings={() => setAiSettingsOpen(true)}
-                onSignIn={onSignIn}
-                isLocalOnly={isLocalOnly}
-              />
+            {theme === "dark" ? (
+              <Sun className="h-[18px] w-[18px]" strokeWidth={1.7} />
+            ) : (
+              <Moon className="h-[18px] w-[18px]" strokeWidth={1.7} />
             )}
-          </div>
+          </button>
+          {onLogout && (
+            <ProfileDropdown
+              onLogout={onLogout}
+              onChangePassword={() => setChangePasswordOpen(true)}
+              onAbout={() => setAboutOpen(true)}
+              onAISettings={() => setAiSettingsOpen(true)}
+              onSignIn={onSignIn}
+              isLocalOnly={isLocalOnly}
+            />
+          )}
         </div>
       </header>
       <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />

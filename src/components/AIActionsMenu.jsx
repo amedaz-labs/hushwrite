@@ -1,7 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { cn } from "@/lib/utils";
 import { useAI } from "@/hooks/useAI";
+import {
+  AlignLeft,
+  ArrowRight,
+  CircleStop,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+  Type,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,34 +18,38 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-
-const Icon = ({ name, className }) => (
-  <span className={cn("material-symbols-outlined", className)}>{name}</span>
-);
+import {
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuLabel,
+  MenuSeparator,
+  MenuTrigger,
+} from "@/components/ui/menu";
 
 const ACTIONS = [
   {
     id: "title",
     label: "Generate title",
-    icon: "title",
+    icon: Type,
     needsTitleSetter: true,
   },
   {
     id: "improve",
     label: "Improve writing",
-    icon: "auto_fix_high",
+    icon: Sparkles,
     replacesBody: true,
   },
   {
     id: "summarize",
     label: "Summarize note",
-    icon: "summarize",
+    icon: AlignLeft,
     appendsBody: true,
   },
   {
     id: "continue",
     label: "Continue writing",
-    icon: "arrow_forward",
+    icon: ArrowRight,
     appendsBody: true,
   },
 ];
@@ -52,25 +65,14 @@ const AIActionsMenu = ({
   disabled = false,
 }) => {
   const ai = useAI();
-  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [folderConsent, setFolderConsent] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
-  const ref = useRef(null);
   const abortRef = useRef(null);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    if (open) document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
 
   if (!ai.supported || !ai.enabled) return null;
 
   const triggerAction = (action) => {
-    setOpen(false);
     if (folderNote && !folderConsent) {
       setPendingAction(action);
       return;
@@ -165,78 +167,84 @@ const AIActionsMenu = ({
   const isLoading = ai.status === "loading";
 
   return (
-    <div className="relative" ref={ref}>
+    <>
+      {/* Owned here so it can never outlive the control it separates — this
+          component returns null when AI is unsupported or switched off. */}
+      <span
+        aria-hidden="true"
+        className="hidden h-[18px] w-px shrink-0 bg-outline-variant/50 sm:block"
+      />
       {busy ? (
         <button
           onClick={cancelRunning}
           title="Stop AI"
-          className="flex items-center gap-1.5 rounded p-1.5 text-vault-primary transition-all hover:bg-error-container/30 hover:text-error"
+          className="flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12.5px] font-medium text-vault-primary transition-colors hover:bg-error/10 hover:text-error"
         >
-          <Icon name="stop_circle" className="animate-pulse text-xl" />
-          <span className="text-[11px] font-medium">Stop</span>
+          <CircleStop className="h-[18px] w-[18px] animate-pulse" strokeWidth={1.7} />
+          Stop
         </button>
       ) : (
-        <button
-          onClick={() => setOpen((v) => !v)}
-          disabled={disabled}
-          title={disabled ? "Accept or discard pending AI change first" : "AI assist"}
-          className={cn(
-            "flex h-11 w-11 items-center justify-center gap-1.5 rounded p-1.5 transition-all hover:bg-surface-container-high disabled:cursor-not-allowed disabled:opacity-40 md:h-auto md:w-auto",
-            isReady
-              ? "text-vault-primary"
-              : "text-outline hover:text-on-surface",
-          )}
-        >
-          <Icon
-            name="auto_awesome"
-            className={cn("text-xl", isLoading && "animate-pulse")}
-          />
-        </button>
-      )}
-
-      {open && (
-        <div className="absolute left-0 top-full z-50 mt-2 w-[min(14rem,calc(100vw_-_1.5rem))] overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container shadow-xl md:left-auto md:right-0">
-          <div className="border-b border-outline-variant/20 px-4 py-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-vault-primary">
-              On-device AI
-            </p>
-            <p className="text-xs text-on-surface-variant">
+        <Menu>
+          <MenuTrigger asChild>
+            <button
+              // `aria-disabled`, not `disabled`: a real `disabled` button is
+              // removed from the tab order and drops its tooltip, so the one
+              // place that explains WHY it's unavailable becomes unreachable.
+              // Radix's composed handlers bail when the child prevents the
+              // default, which is what keeps the menu from opening.
+              aria-disabled={disabled || undefined}
+              onPointerDown={(e) => disabled && e.preventDefault()}
+              onKeyDown={(e) => {
+                if (!disabled) return;
+                if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(e.key)) {
+                  e.preventDefault();
+                }
+              }}
+              title={disabled ? "Accept or discard pending AI change first" : "AI assist"}
+              className={cn(
+                "flex h-8 shrink-0 items-center gap-1.5 rounded-full pl-2 pr-2.5 text-[12.5px] font-medium transition-colors",
+                disabled && "cursor-not-allowed opacity-40",
+                isReady
+                  ? "text-vault-primary hover:bg-vault-primary/15"
+                  : "text-outline hover:bg-surface-container hover:text-on-surface",
+              )}
+            >
+              <Sparkles
+                className={cn("h-[15px] w-[15px]", isLoading && "animate-pulse")}
+                strokeWidth={1.7}
+              />
+              AI
+            </button>
+          </MenuTrigger>
+          <MenuContent align="end">
+            <MenuLabel>
               {isReady
-                ? "Model ready"
+                ? "On-device AI · model ready"
                 : isLoading
-                  ? `Loading… ${Math.round((ai.progress || 0) * 100)}%`
-                  : "Click an action to load"}
-            </p>
-          </div>
-          <div className="py-1">
+                  ? `On-device AI · loading ${Math.round((ai.progress || 0) * 100)}%`
+                  : "On-device AI · nothing leaves the device"}
+            </MenuLabel>
             {ACTIONS.map((a) => (
-              <button
+              <MenuItem
                 key={a.id}
-                onClick={() => triggerAction(a)}
                 disabled={isLoading}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-on-surface transition-colors hover:bg-surface-container-high disabled:opacity-50"
+                onSelect={() => triggerAction(a)}
               >
-                <Icon name={a.icon} className="text-[18px] text-outline" />
+                <a.icon className="mt-px h-4 w-4 shrink-0 text-outline" strokeWidth={1.7} />
                 {a.label}
-              </button>
+              </MenuItem>
             ))}
             {onOpenSettings && (
               <>
-                <div className="my-1 border-t border-outline-variant/20" />
-                <button
-                  onClick={() => {
-                    setOpen(false);
-                    onOpenSettings();
-                  }}
-                  className="flex w-full items-center gap-3 px-4 py-2.5 text-xs text-on-surface-variant transition-colors hover:bg-surface-container-high"
-                >
-                  <Icon name="settings" className="text-[18px] text-outline" />
+                <MenuSeparator />
+                <MenuItem onSelect={onOpenSettings}>
+                  <Settings className="mt-px h-4 w-4 shrink-0 text-outline" strokeWidth={1.7} />
                   AI settings
-                </button>
+                </MenuItem>
               </>
             )}
-          </div>
-        </div>
+          </MenuContent>
+        </Menu>
       )}
 
       <Dialog
@@ -246,7 +254,7 @@ const AIActionsMenu = ({
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Icon name="shield_lock" className="text-vault-primary" />
+              <ShieldCheck className="h-5 w-5 text-vault-primary" strokeWidth={1.7} />
               Run AI on a folder note?
             </DialogTitle>
             <DialogDescription>
@@ -270,13 +278,13 @@ const AIActionsMenu = ({
               onClick={handleConsent}
               className="flex items-center gap-2 rounded-lg bg-vault-primary px-4 py-2 text-sm font-medium text-on-primary-fixed transition-all hover:scale-[1.02] active:scale-95"
             >
-              <Icon name="auto_awesome" className="text-sm" />
+              <Sparkles className="h-4 w-4" strokeWidth={1.7} />
               Allow for this session
             </button>
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 };
 

@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { cn } from "@/lib/utils";
+import { FolderInput, Info, KeyRound, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,17 +10,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
-const Icon = ({ name, className, fill }) => (
-  <span
-    className={cn("material-symbols-outlined", className)}
-    style={fill ? { fontVariationSettings: "'FILL' 1" } : undefined}
-  >
-    {name}
-  </span>
-);
-
 const Stat = ({ label, value }) => (
-  <div className="flex flex-col gap-0.5 rounded-lg border border-outline-variant/20 bg-surface-container-low px-4 py-3">
+  <div className="flex flex-col gap-0.5 rounded-lg border border-outline-variant/45 bg-surface-container-low px-4 py-3">
     <span className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant/70">
       {label}
     </span>
@@ -42,6 +34,11 @@ const NoteInfoDialog = ({
   currentFolderId = null,
   isFolderUnlocked = () => false,
   onMoveNote,
+  // Which card the caller actually asked for: "Move to folder…" and "Change
+  // passphrase…" both open this dialog, and landing on an info header with a
+  // word-count grid — with the card you chose two scrolls down — makes the menu
+  // read as three labels pointing at one destination.
+  focusSection = null, // "move" | "passphrase" | null
 }) => {
   const [newPassphrase, setNewPassphrase] = useState("");
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
@@ -52,6 +49,11 @@ const NoteInfoDialog = ({
   const [moving, setMoving] = useState(false);
   const inFolder = !!currentFolderId;
 
+  // `markdown` is null when the caller can't decrypt this note (the sidebar
+  // opening info for a locked note). Counting characters in "" would report a
+  // confident 0 words for a note that may be pages long.
+  const hasContent = typeof markdown === "string";
+
   const stats = useMemo(() => {
     const text = markdown || "";
     const characters = text.length;
@@ -59,6 +61,26 @@ const NoteInfoDialog = ({
     const words = trimmed ? trimmed.split(/\s+/).length : 0;
     return { characters, words };
   }, [markdown]);
+
+  const moveCardRef = useRef(null);
+  const passphraseCardRef = useRef(null);
+
+  // Scroll the requested card into view and put focus on its first control.
+  // Deferred a frame because Radix moves focus to the dialog itself on open;
+  // running synchronously would just get overwritten.
+  useEffect(() => {
+    if (!open || !focusSection) return;
+    const card =
+      focusSection === "move" ? moveCardRef.current : passphraseCardRef.current;
+    if (!card) return;
+    const frame = requestAnimationFrame(() => {
+      card.scrollIntoView({ block: "nearest" });
+      card
+        .querySelector("input, button:not([disabled]), select, textarea")
+        ?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, focusSection]);
 
   const reset = () => {
     setNewPassphrase("");
@@ -143,7 +165,7 @@ const NoteInfoDialog = ({
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Icon name="info" className="shrink-0 text-base" fill />
+            <Info className="h-4 w-4 shrink-0" strokeWidth={1.7} />
             <span className="min-w-0 truncate">
               {title?.trim() || "Note details"}
             </span>
@@ -153,15 +175,25 @@ const NoteInfoDialog = ({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-2">
-          <Stat label="Words" value={stats.words} />
-          <Stat label="Characters" value={stats.characters} />
-        </div>
+        {hasContent ? (
+          <div className="grid grid-cols-2 gap-2">
+            <Stat label="Words" value={stats.words} />
+            <Stat label="Characters" value={stats.characters} />
+          </div>
+        ) : (
+          <p className="rounded-lg border border-outline-variant/45 bg-surface-container-low px-4 py-3 text-xs text-on-surface-variant">
+            Word and character counts need the note's text — open it and unlock
+            it to see them.
+          </p>
+        )}
 
         {canMove && destinations.length > 0 && (
-          <div className="mt-2 rounded-lg border border-outline-variant/20 bg-surface-container-low p-4">
+          <div
+            ref={moveCardRef}
+            className="mt-2 rounded-lg border border-outline-variant/45 bg-surface-container-low p-4"
+          >
             <div className="mb-3 flex items-center gap-2">
-              <Icon name="drive_file_move" className="text-base text-vault-primary" />
+              <FolderInput className="h-4 w-4 text-vault-primary" strokeWidth={1.7} />
               <h4 className="text-sm font-semibold text-on-surface">
                 {inFolder ? `In folder: ${folderName}` : "Not in a folder"}
               </h4>
@@ -197,14 +229,14 @@ const NoteInfoDialog = ({
                       value={movePassphrase}
                       onChange={(e) => setMovePassphrase(e.target.value)}
                       placeholder="Passphrase for this note"
-                      className="w-full rounded-md border border-outline-variant/30 bg-surface-container px-3 py-2 text-base text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none sm:text-sm"
+                      className="w-full rounded-md border border-outline/85 bg-surface-container px-3 py-2 text-base text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none sm:text-sm"
                     />
                     <input
                       type="password"
                       value={moveConfirm}
                       onChange={(e) => setMoveConfirm(e.target.value)}
                       placeholder="Confirm passphrase"
-                      className="w-full rounded-md border border-outline-variant/30 bg-surface-container px-3 py-2 text-base text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none sm:text-sm"
+                      className="w-full rounded-md border border-outline/85 bg-surface-container px-3 py-2 text-base text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none sm:text-sm"
                     />
                   </>
                 )}
@@ -213,10 +245,11 @@ const NoteInfoDialog = ({
                   disabled={moving}
                   className="flex items-center justify-center gap-2 rounded-md bg-vault-primary px-4 py-2 text-sm font-medium text-on-primary-fixed transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <Icon
-                    name={moving ? "progress_activity" : "drive_file_move"}
-                    className={cn("text-sm", moving && "animate-spin")}
-                  />
+                  {moving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.7} />
+                  ) : (
+                    <FolderInput className="h-4 w-4" strokeWidth={1.7} />
+                  )}
                   {moving ? "Re-encrypting…" : `Move to ${moveTarget.label}`}
                 </button>
               </form>
@@ -224,9 +257,12 @@ const NoteInfoDialog = ({
           </div>
         )}
 
-        <div className="mt-2 rounded-lg border border-outline-variant/20 bg-surface-container-low p-4">
+        <div
+          ref={passphraseCardRef}
+          className="mt-2 rounded-lg border border-outline-variant/45 bg-surface-container-low p-4"
+        >
           <div className="mb-3 flex items-center gap-2">
-            <Icon name="key" className="text-base text-vault-primary" />
+            <KeyRound className="h-4 w-4 text-vault-primary" strokeWidth={1.7} />
             <h4 className="text-sm font-semibold text-on-surface">
               Change passphrase
             </h4>
@@ -248,21 +284,21 @@ const NoteInfoDialog = ({
                 value={newPassphrase}
                 onChange={(e) => setNewPassphrase(e.target.value)}
                 placeholder="New passphrase"
-                className="w-full rounded-md border border-outline-variant/30 bg-surface-container px-3 py-2 text-base text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none sm:text-sm"
+                className="w-full rounded-md border border-outline/85 bg-surface-container px-3 py-2 text-base text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none sm:text-sm"
               />
               <input
                 type="password"
                 value={confirmPassphrase}
                 onChange={(e) => setConfirmPassphrase(e.target.value)}
                 placeholder="Confirm new passphrase"
-                className="w-full rounded-md border border-outline-variant/30 bg-surface-container px-3 py-2 text-base text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none sm:text-sm"
+                className="w-full rounded-md border border-outline/85 bg-surface-container px-3 py-2 text-base text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none sm:text-sm"
               />
               <button
                 type="submit"
                 disabled={working || !newPassphrase || !confirmPassphrase}
                 className="mt-1 flex items-center justify-center gap-2 rounded-md bg-vault-primary px-4 py-2 text-sm font-medium text-on-primary-fixed transition-all hover:scale-[1.01] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Icon name={working ? "progress_activity" : "lock_reset"} className={cn("text-sm", working && "animate-spin")} />
+                {working ? (<Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.7} />) : (<KeyRound className="h-4 w-4" strokeWidth={1.7} />)}
                 {working ? "Updating…" : "Update passphrase"}
               </button>
               <p className="mt-1 text-[11px] leading-snug text-on-surface-variant/80">

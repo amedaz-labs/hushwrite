@@ -95,6 +95,9 @@ export function useNoteSession({
         if (cached) return { ...cached, folderId };
         const pw = await askPassphrase("decrypt", {
           folderName: folderName(folderId),
+          // Carried so the prompt can say how many notes this one passphrase
+          // opens. Display only — the key path does not read it.
+          folderId,
         });
         const unlocked = await folders.unlockFolder(folderId, pw);
         return { ...unlocked, folderId };
@@ -497,9 +500,19 @@ export function useNoteSession({
   }, [isDirty, markdown, title, saveManual]);
 
 
-  // Shared cleanup after either delete path succeeds. Drops the in-memory
-  // session key, clears the editor, and refreshes the sidebar list.
+  // Shared cleanup after ANY delete path — including the sidebar's, which
+  // reaches it through the ref App threads in. Drops the in-memory session key,
+  // clears the editor, and refreshes the sidebar list.
+  //
+  // Everything down to the ref wipes is synchronous on purpose. The sidebar
+  // calls this BEFORE it destroys the record, and a debounce timer already at
+  // its deadline would otherwise fire from the macrotask queue between the
+  // delete and the cleanup — `persistNote` would find no existing record and
+  // `put` the note straight back with a fresh `createdAt`, minus the image
+  // blobs the caller had already collected.
   const finalizeDelete = useCallback(async () => {
+    clearTimeout(debounceTimerRef.current);
+    clearTimeout(idleTimerRef.current);
     sessionKeyRef.current = null;
     sessionSaltRef.current = null;
     sessionFolderIdRef.current = null;
@@ -694,5 +707,9 @@ export function useNoteSession({
     deleteCurrent,
     deleteFolderNote,
     forceDeleteCurrent,
+    // Exposed so the sidebar's row-level delete ends in the same teardown the
+    // three editor delete paths do, instead of clearing App state and leaving
+    // the session key, salt and folder id pointing at a deleted record.
+    finalizeDelete,
   };
 }

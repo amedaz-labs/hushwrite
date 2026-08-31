@@ -93,7 +93,7 @@ const Preview = ({
           <div
             ref={highlightRef}
             aria-hidden
-            className="pointer-events-none absolute left-0 right-0 top-5 h-[22.75px] bg-vault-primary/8 transition-transform duration-75"
+            className="pointer-events-none absolute left-0 right-0 top-5 h-[22.75px] bg-vault-primary/10 transition-transform duration-75"
           />
         )}
         <textarea
@@ -117,7 +117,10 @@ const Preview = ({
           onBlur={() => setFocused(false)}
           spellCheck={false}
           placeholder="Start writing to see the markdown source"
-          className="scrollbar-thin relative h-full w-full resize-none overflow-y-auto bg-transparent px-6 py-5 font-mono text-base leading-[22.75px] text-foreground md:text-[13px] placeholder:text-muted-foreground focus:outline-none"
+          // No `focus:outline-none` here: this textarea and the title input were
+          // the only two focusable controls in the app with no focus indicator
+          // whatsoever. The UA ring is fine.
+          className="scrollbar-thin relative h-full w-full resize-none overflow-y-auto bg-transparent px-6 py-5 font-mono text-base leading-[22.75px] text-foreground md:text-[13px] placeholder:text-muted-foreground"
         />
       </div>
     </div>

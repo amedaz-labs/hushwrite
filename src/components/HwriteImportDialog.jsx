@@ -110,7 +110,7 @@ const HwriteImportDialog = ({
                   "flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium " +
                   (parsed.encrypted
                     ? "bg-primary/15 text-primary"
-                    : "bg-amber-500/15 text-amber-600 dark:text-amber-400")
+                    : "bg-warn/15 text-warn")
                 }
               >
                 {parsed.encrypted ? (
