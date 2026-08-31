@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import MilkdownEditor from "./MilkdownEditor.jsx";
 import Preview from "./Preview.jsx";
@@ -38,6 +38,7 @@ import {
   getAllNotes,
 } from "../js/db";
 import { deriveKey, decryptContent } from "../js/crypto";
+import { loadImageUrl } from "../js/imageStore";
 
 import { useModalQueue } from "@/hooks/useModalQueue";
 import { useNoteSession } from "@/hooks/useNoteSession";
@@ -360,6 +361,16 @@ const Markdown = ({
     activeFolderId,
   });
 
+  // The editor's image resolver. ONE prop, deliberately — not a key on a
+  // context: `getSessionKey()` is read here, at the moment an image is needed,
+  // and never handed to the tree. `loadImageUrl` serves legacy plaintext
+  // records with the key unused, so a locked-but-legacy image still resolves
+  // exactly as it did before.
+  const resolveImage = useCallback(
+    (id) => loadImageUrl(id, getSessionKey()),
+    [getSessionKey],
+  );
+
   // The folder that owns the note currently in the editor (null for a root
   // note with its own passphrase). A saved note answers for itself; only an
   // unsaved draft falls back to wherever the sidebar is pointing.
@@ -538,7 +549,14 @@ const Markdown = ({
   const readEditorContent = () => {
     const live = liveContentRef.current;
     if (live.locked) throw new Error("Unlock the note to export it.");
-    return { title: live.title, markdown: live.markdown };
+    // `imageKey` rides along with the plaintext, for the same reason: an
+    // export that can read the body must also be able to read its pictures,
+    // and a lock in between makes this whole call throw before either escapes.
+    return {
+      title: live.title,
+      markdown: live.markdown,
+      imageKey: getSessionKey(),
+    };
   };
 
   // A lock must take every export dialog with it. Leaving one mounted over the
@@ -945,11 +963,19 @@ const Markdown = ({
                     copy there is. Titles are therefore READABLE, not
                     protected — do not soften this copy unless every one of
                     those writers changes first.
-                  - image blobs in the `images` store are NOT encrypted
-                    (hwrite.js saves them raw; IdbImage renders them with no
-                    key; backup.js uploads them base64'd)
-                Only the note body ciphertext is actually protected. Do not
-                widen this list without changing the code first. */}
+                  - image blobs saved BEFORE the encrypted-images change are
+                    still stored in the clear, as legacy `{ id, blob }` records
+                    (js/imageStore.js). There is deliberately no migration, so
+                    they stay readable with no key and backup.js still uploads
+                    them base64'd. Images saved since are encrypted under a
+                    per-image key wrapped by this folder's key — but "any
+                    images inside a note" remains a TRUE statement for any
+                    profile that predates the change, which is every existing
+                    one. Do not soften this line until the legacy shape is
+                    gone; the "Delete unencrypted images" action in the backup
+                    panel is the only thing that removes it.
+                Only the note body ciphertext is protected for every profile.
+                Do not widen this list without changing the code first. */}
             {noteFolder && (
               <div className="w-full">
                 <button
@@ -1143,6 +1169,7 @@ const Markdown = ({
                 <MilkdownEditor
                   markdown={markdown}
                   onChange={(val) => setMarkdown(val || "")}
+                  resolveImage={resolveImage}
                   lockEpoch={folders.lockEpoch}
                 />
               </div>

@@ -1,6 +1,13 @@
 import { openDB } from "idb";
 
 const DB_NAME = "hushwrite-db";
+// Deliberately still 3. Encrypted image records (`{ v: 1, ciphertext, iv,
+// wrappedKey, wrapIv, ... }`) coexist with the legacy plaintext shape
+// (`{ id, blob }`) in the SAME store, with no new store, no index and no
+// migration — every reader branches on `record.v === 1`. A version bump would
+// buy nothing and cost something real: under `registerType: "autoUpdate"` an
+// older cached bundle can still be running, and its `openDB(..., 3)` would
+// throw `VersionError` against a v4 database.
 const DB_VERSION = 3;
 const NOTES_STORE = "notes";
 const IMAGES_STORE = "images";
@@ -14,6 +21,10 @@ export const VAULT_META_ID = "__vault_meta__";
 
 export const initDB = async () => {
   return openDB(DB_NAME, DB_VERSION, {
+    // This callback must never touch image data, whatever the version: no
+    // encryption key exists at `openDB` time, and `initDB` runs on paths that
+    // execute long before any folder or note is unlocked. See
+    // `js/imageStore.js`.
     upgrade(db) {
       if (!db.objectStoreNames.contains(NOTES_STORE)) {
         db.createObjectStore(NOTES_STORE, { keyPath: "id" });
@@ -179,13 +190,60 @@ export const replaceAll = async ({ notes = [], images = [], folders = [] }) => {
 // auto-commits once the microtask queue drains with no pending IDB request,
 // and a `crypto.subtle` promise is not one — awaiting it here would commit the
 // tx early and make the next put throw TransactionInactiveError.
-export const saveFolderWithNotes = async (folder, notes = []) => {
+// `images` carries the re-wrapped image records produced by the same re-key.
+// An image's wrapped CEK is only openable by the key the folder record names,
+// so it belongs in exactly the same all-or-nothing write as the notes: land it
+// separately and a crash in between leaves images whose wrapped key no longer
+// matches any passphrase the folder can validate.
+export const saveFolderWithNotes = async (folder, notes = [], images = []) => {
   const db = await initDB();
-  const tx = db.transaction([NOTES_STORE, FOLDERS_STORE], "readwrite");
+  const stores = [NOTES_STORE, FOLDERS_STORE];
+  if (images.length) stores.push(IMAGES_STORE);
+  const tx = db.transaction(stores, "readwrite");
   const notesStore = tx.objectStore(NOTES_STORE);
   await tx.objectStore(FOLDERS_STORE).put(folder);
   for (const note of notes) {
     await notesStore.put(note);
+  }
+  if (images.length) {
+    const imagesStore = tx.objectStore(IMAGES_STORE);
+    for (const image of images) {
+      await imagesStore.put(image);
+    }
+  }
+  await tx.done;
+};
+
+// Write one note together with its image records (and any image blobs the save
+// GC'd) in a single transaction.
+//
+// Exists for the same reason `saveFolderWithNotes` does: after this change an
+// image's content key is wrapped under the key that opens its owning note, so
+// the note record and the image records are only meaningful together. A note
+// that lands without its freshly-wrapped images references blobs nothing can
+// open; images that land without the note are orphans.
+//
+// Same rule as the other batched writers: callers must finish ALL crypto
+// first. `idb` auto-commits a transaction as soon as the microtask queue
+// drains with no pending IDB request, and a `crypto.subtle` promise is not
+// one — awaiting inside would commit early and make the next put throw
+// TransactionInactiveError.
+export const saveNoteWithImages = async (note, images = [], deleteIds = []) => {
+  const db = await initDB();
+  const needsImages = images.length > 0 || deleteIds.length > 0;
+  const tx = db.transaction(
+    needsImages ? [NOTES_STORE, IMAGES_STORE] : [NOTES_STORE],
+    "readwrite",
+  );
+  await tx.objectStore(NOTES_STORE).put(note);
+  if (needsImages) {
+    const imagesStore = tx.objectStore(IMAGES_STORE);
+    for (const id of deleteIds) {
+      await imagesStore.delete(id);
+    }
+    for (const image of images) {
+      await imagesStore.put(image);
+    }
   }
   await tx.done;
 };

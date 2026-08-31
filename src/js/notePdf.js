@@ -5,7 +5,7 @@
 
 import { jsPDF } from "jspdf";
 import { marked } from "marked";
-import { getImage } from "./db";
+import { loadImageBlob } from "./imageStore";
 
 const PT_TO_MM = 0.352778;
 const PX_TO_MM = 25.4 / 96;
@@ -76,13 +76,19 @@ const blobToDataUrl = (blob) =>
   });
 
 // Resolve an image reference (idb:// / data: / remote) to { dataUrl, w, h, fmt }.
-const loadImage = async (href) => {
+//
+// `imageKey` opens the note being exported — encrypted images cannot be read
+// without it. Note the failure mode this sits on top of: returning `null` here
+// makes `drawImageBlock` quietly substitute the alt text, with no error and no
+// toast. A missing key therefore looks exactly like a missing image, so the
+// callers MUST thread the key through.
+const loadImage = async (href, imageKey = null) => {
   try {
     let dataUrl = href;
     if (href.startsWith("idb://")) {
-      const rec = await getImage(href.slice("idb://".length));
-      if (!rec?.blob) return null;
-      dataUrl = await blobToDataUrl(rec.blob);
+      const blob = await loadImageBlob(href.slice("idb://".length), imageKey);
+      if (!blob) return null;
+      dataUrl = await blobToDataUrl(blob);
     }
     const dims = await new Promise((resolve) => {
       const img = new Image();
@@ -99,7 +105,12 @@ const loadImage = async (href) => {
   }
 };
 
-export async function exportNotePdf({ title, markdown, fileName }) {
+export async function exportNotePdf({
+  title,
+  markdown,
+  fileName,
+  imageKey = null,
+}) {
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
   const pageW = 210;
   const pageH = 297;
@@ -187,7 +198,7 @@ export async function exportNotePdf({ title, markdown, fileName }) {
   };
 
   const drawImageBlock = async (href, alt) => {
-    const data = await loadImage(href);
+    const data = await loadImage(href, imageKey);
     if (!data) {
       drawRich([{ text: alt || "[image]", italic: true }], {
         color: COLORS.muted,

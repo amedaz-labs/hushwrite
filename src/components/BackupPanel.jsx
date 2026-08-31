@@ -29,11 +29,13 @@ import {
   setDeviceLabel,
   setSnapshotPinned,
 } from "@/js/backup";
+import { countLegacyImages, deleteLegacyImages } from "@/js/imageStore";
 import { useFolders } from "@/lib/folders";
 import {
   ArrowLeft,
   CloudUpload,
   History,
+  ImageOff,
   Laptop,
   Loader2,
   Lock,
@@ -45,6 +47,7 @@ import {
   Pin,
   PinOff,
   RefreshCw,
+  ShieldAlert,
   Smartphone,
   Tablet,
   Terminal,
@@ -75,6 +78,8 @@ const GLYPHS = {
   desktop_windows: Monitor,
   computer: Terminal,
   devices: MonitorSmartphone,
+  image_off: ImageOff,
+  shield_alert: ShieldAlert,
 };
 
 const Icon = ({ name, className }) => {
@@ -143,8 +148,38 @@ const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) =
   const [labelInitialized, setLabelInitialized] = useState(false);
 
   const [confirm, setConfirm] = useState(null);
+  // How many stored images predate encrypted image storage. `null` = not
+  // counted yet. Shown even when signed out — this is local data hygiene, not
+  // a cloud feature.
+  const [legacyImages, setLegacyImages] = useState(null);
 
   const lastId = getLastSnapshotId();
+
+  const refreshLegacyImages = async () => {
+    try {
+      setLegacyImages(await countLegacyImages());
+    } catch {
+      setLegacyImages(null);
+    }
+  };
+
+  const confirmDeleteLegacyImages = async () => {
+    setBusyAction("wipe-images");
+    try {
+      const removed = await deleteLegacyImages();
+      setConfirm(null);
+      await refreshLegacyImages();
+      toast.success(
+        removed
+          ? `Deleted ${pluralize(removed, "unencrypted image", "unencrypted images")}`
+          : "No unencrypted images left",
+      );
+    } catch (err) {
+      toast.error(err.message || "Could not delete images");
+    } finally {
+      setBusyAction(null);
+    }
+  };
 
   const refresh = async () => {
     if (!isLoggedIn()) return;
@@ -165,6 +200,7 @@ const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) =
     if (!open) return;
     setAuthed(isLoggedIn());
     if (isLoggedIn()) refresh();
+    refreshLegacyImages();
     if (!labelInitialized) {
       setLabelDraft(getDeviceLabel() || getOrInitDeviceLabel());
       setLabelInitialized(true);
@@ -497,6 +533,53 @@ const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) =
               </div>
             </div>
           )}
+
+          {/* Local data hygiene, not a cloud feature — shown whether or not
+              the user has a backup account. Images saved before Hushwrite
+              started encrypting them are still stored in the clear, and there
+              is deliberately no migration (no key exists at read time, and
+              re-encrypting silently would be worse). This is the manual route
+              to a clean state. */}
+          <div className="mx-auto w-full max-w-5xl px-6 pb-10 md:px-10">
+            <section className="rounded-2xl border border-outline-variant/45 bg-surface-container/60 p-5">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface text-on-surface-variant">
+                  <Icon name="shield_alert" className="text-lg" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-semibold text-on-surface">
+                    Unencrypted images
+                  </h3>
+                  <p className="mt-1 text-[12.5px] leading-relaxed text-on-surface-variant">
+                    Images added to notes before this update were stored without
+                    encryption, and they stay that way — nothing rewrites them.
+                    Deleting them removes that image data from your device for
+                    good. The notes themselves are untouched, but the pictures
+                    will stop appearing in them and cannot be recovered.
+                  </p>
+                  <p className="mt-2 text-[11.5px] text-outline">
+                    {legacyImages === null
+                      ? "Counting…"
+                      : legacyImages === 0
+                        ? "None found — every stored image on this device is encrypted."
+                        : `${pluralize(legacyImages, "image", "images")} stored unencrypted.`}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setConfirm({ kind: "wipe-images" })}
+                disabled={!legacyImages || busyAction === "wipe-images"}
+                className={cn(
+                  "mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-error/40 bg-surface px-4 py-2.5 text-xs font-semibold text-error transition-colors hover:bg-error/10 sm:w-auto",
+                  (!legacyImages || busyAction === "wipe-images") &&
+                    "cursor-not-allowed opacity-50",
+                )}
+              >
+                <Icon name="image_off" className="text-sm" />
+                Delete unencrypted images
+              </button>
+            </section>
+          </div>
         </div>
       </DialogContent>
 
@@ -617,6 +700,46 @@ const BackupPanel = ({ open, onOpenChange, onRestoreComplete, onAfterBackup }) =
               className="rounded-md bg-destructive px-3 py-2 text-sm font-semibold text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
             >
               {busyAction === "delete" ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ---- Delete unencrypted images confirm ---- */}
+      <Dialog
+        open={confirm?.kind === "wipe-images"}
+        onOpenChange={(v) => !v && setConfirm(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete unencrypted images?</DialogTitle>
+            <DialogDescription>
+              This permanently removes{" "}
+              <span className="font-medium">
+                {pluralize(legacyImages || 0, "image", "images")}
+              </span>{" "}
+              that were stored without encryption — every image added to a note
+              before this update. The notes keep their text and their layout,
+              but those pictures will be gone from this device and cannot be
+              recovered. Images added since the update are encrypted and are not
+              affected.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <button
+              onClick={() => setConfirm(null)}
+              className="rounded-md px-3 py-2 text-sm font-medium text-on-surface-variant hover:bg-surface-container-high"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmDeleteLegacyImages}
+              disabled={busyAction === "wipe-images"}
+              className="rounded-md bg-destructive px-3 py-2 text-sm font-semibold text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+            >
+              {busyAction === "wipe-images"
+                ? "Deleting…"
+                : "Delete images permanently"}
             </button>
           </div>
         </DialogContent>

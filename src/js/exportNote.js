@@ -26,11 +26,14 @@ export const exportAsMarkdown = ({ title, markdown }) => {
 };
 
 // PDF — unencrypted. Resolves once the file has been handed to the browser.
-export const exportAsPdf = async ({ title, markdown, fileName }) => {
+// `imageKey` is the key that opens the note; without it, encrypted images are
+// silently dropped from the PDF (see notePdf.js `loadImage`).
+export const exportAsPdf = async ({ title, markdown, fileName, imageKey }) => {
   await exportNotePdf({
     title: title || "Untitled",
     markdown: markdown || "",
     fileName: cleanFileName(fileName || title),
+    imageKey: imageKey || null,
   });
 };
 
@@ -41,9 +44,10 @@ export const exportAsHwrite = async ({
   markdown,
   encrypted,
   passphrase,
+  imageKey,
 }) => {
   const blob = await serializeNote(
-    { title, markdown },
+    { title, markdown, imageKey: imageKey || null },
     { encrypted, passphrase },
   );
   return downloadHwrite(blob, title);

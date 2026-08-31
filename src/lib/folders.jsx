@@ -19,12 +19,13 @@ import {
   getFolder,
   saveFolder,
   saveFolderWithNotes,
+  saveNoteWithImages,
   deleteFolderCascade,
   getAllNotes,
   getNote,
-  saveNote,
   migrateToFolders,
 } from "../js/db";
+import { rewrapImagesForKey } from "../js/imageStore";
 
 // Unchanged from the singleton-vault era on purpose: folders migrated from a
 // legacy vault carry a verifier encrypted with this exact string, so changing
@@ -250,7 +251,16 @@ export const FolderProvider = ({ children }) => {
       // note's plaintext goes out of scope at the end of the iteration, so
       // peak live plaintext stays at one note. Do not "optimize" this into a
       // decrypt-all pass — it would hold every note in the clear at once.
+      //
+      // The same rule holds for images, and holds by construction: images use
+      // envelope encryption, so `rewrapImagesForKey` decrypts and re-encrypts
+      // only the 32-byte content key. `rekeyedImages` buffers WRAPPED KEYS,
+      // never image bytes — the `ciphertext` field it carries through is a Blob
+      // handle IDB never materialized. Do not replace that with a
+      // decrypt-bytes/re-encrypt-bytes pass; a photo-heavy folder would then
+      // hold every picture in the clear at once.
       const rekeyed = [];
+      const rekeyedImages = [];
       try {
         for (const note of contained) {
           const plainBody = await decryptContent(
@@ -271,6 +281,17 @@ export const FolderProvider = ({ children }) => {
           const { ciphertext: titleCiphertext, iv: titleIv } =
             await encryptContent(plainTitle, newKey);
 
+          // Without this every image saved since the encrypted-images change
+          // would be permanently undecryptable after a passphrase change: its
+          // CEK is wrapped under the OLD folder key.
+          rekeyedImages.push(
+            ...(await rewrapImagesForKey(
+              note.imageIds || [],
+              current.key,
+              newKey,
+            )),
+          );
+
           rekeyed.push({
             ...note,
             ciphertext,
@@ -283,10 +304,10 @@ export const FolderProvider = ({ children }) => {
           });
         }
       } catch (err) {
-        // One unreadable note aborts the whole re-key, and nothing has been
-        // written yet so the folder is exactly as it was. Skipping the bad
-        // note instead would leave it on the old key — the corruption this
-        // structure exists to prevent. decryptContent's own message ("Note
+        // One unreadable note OR image aborts the whole re-key, and nothing
+        // has been written yet so the folder is exactly as it was. Skipping
+        // the bad item instead would leave it on the old key — the corruption
+        // this structure exists to prevent. decryptContent's own message ("Note
         // corrupted, tampered, or wrong passphrase") misleads here, since the
         // passphrase the user just typed is not the one that failed — so log
         // the real error before replacing it with the accurate one.
@@ -296,8 +317,9 @@ export const FolderProvider = ({ children }) => {
         );
       }
 
-      // Phase B — one transaction. Either the folder's new salt/verifier and
-      // every re-encrypted note land, or none of them do.
+      // Phase B — one transaction. Either the folder's new salt/verifier,
+      // every re-encrypted note and every re-wrapped image key land, or none
+      // of them do.
       //
       // Residual, accepted: an editor autosave that lands between Phase A and
       // this transaction is overwritten by it, losing up to one autosave
@@ -312,6 +334,7 @@ export const FolderProvider = ({ children }) => {
           updatedAt: now,
         },
         rekeyed,
+        rekeyedImages,
       );
 
       // Only after disk has committed — React state must never claim a re-key
@@ -380,17 +403,30 @@ export const FolderProvider = ({ children }) => {
       const { ciphertext: titleCiphertext, iv: titleIv } =
         await encryptContent(plainTitle, writeKey);
 
-      await saveNote({
-        ...note,
-        ciphertext,
-        iv,
-        salt: writeSalt,
-        title: "",
-        titleCiphertext,
-        titleIv,
-        folderId: targetFolderId || null,
-        updatedAt: new Date().toISOString(),
-      });
+      // The note's images move with it. Their CEKs are wrapped under the key
+      // this note used to answer to, so a move without this re-wrap strands
+      // every image the moment the destination's key takes over. All crypto
+      // first, then one transaction — same discipline as the folder re-key.
+      const movedImages = await rewrapImagesForKey(
+        note.imageIds || [],
+        readKey,
+        writeKey,
+      );
+
+      await saveNoteWithImages(
+        {
+          ...note,
+          ciphertext,
+          iv,
+          salt: writeSalt,
+          title: "",
+          titleCiphertext,
+          titleIv,
+          folderId: targetFolderId || null,
+          updatedAt: new Date().toISOString(),
+        },
+        movedImages,
+      );
 
       return { key: writeKey, salt: writeSalt, title: plainTitle };
     },

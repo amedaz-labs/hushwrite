@@ -94,8 +94,11 @@ export const useNoteExports = () => {
     setExporting(true);
     const toastId = toast.loading("Generating PDF…");
     try {
-      const { title, markdown } = await resolve();
-      await exportAsPdf({ title, markdown, fileName });
+      // `imageKey` comes back from the same resolver as the plaintext, so it
+      // is re-derived at confirm time too: a lock between opening the dialog
+      // and confirming makes `resolve()` throw before any key is handed on.
+      const { title, markdown, imageKey } = await resolve();
+      await exportAsPdf({ title, markdown, fileName, imageKey });
       toast.success("PDF downloaded!", { id: toastId });
     } catch (err) {
       console.error("[pdf export] failed:", err);
@@ -109,12 +112,13 @@ export const useNoteExports = () => {
   const handleHwrite = async ({ encrypted, passphrase }) => {
     setHwriteOpen(false);
     try {
-      const { title, markdown } = await resolve();
+      const { title, markdown, imageKey } = await resolve();
       const filename = await exportAsHwrite({
         title,
         markdown,
         encrypted,
         passphrase,
+        imageKey,
       });
       toast.success(
         encrypted ? `Exported encrypted ${filename}` : `Exported ${filename}`,

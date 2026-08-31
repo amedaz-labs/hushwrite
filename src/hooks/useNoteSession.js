@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { v4 as uuid4 } from "uuid";
 import toast from "react-hot-toast";
 import {
-  saveNote,
+  saveNoteWithImages,
   getAllNotes,
   getNote,
   deleteNote as dbDeleteNote,
@@ -14,6 +14,13 @@ import {
   decryptContent,
   generateSalt,
 } from "../js/crypto";
+import {
+  claimImagesForNote,
+  releaseSessionKeys,
+  revokeAllImageUrls,
+  revokeImageUrls,
+  rewrapImagesForKey,
+} from "../js/imageStore";
 import { IDLE_LOCK_MS } from "../lib/folders";
 import { rehydrateInlineImages } from "../js/hwrite";
 
@@ -21,14 +28,39 @@ const AUTOSAVE_DEBOUNCE_MS = 1500;
 
 
 const IDB_IMG_REGEX = /!\[[^\]]*\]\(idb:\/\/([0-9a-f-]+)\)/gi;
+// De-duplicated: the same image can appear twice in one note, and every
+// consumer of `imageIds` (GC, re-wrap, backup) wants the set, not the list.
 const extractImageIds = (md) => {
-  const ids = [];
-  for (const m of md.matchAll(IDB_IMG_REGEX)) ids.push(m[1]);
-  return ids;
+  const ids = new Set();
+  for (const m of md.matchAll(IDB_IMG_REGEX)) ids.add(m[1]);
+  return [...ids];
 };
 const toBytes = (v) => (v instanceof Uint8Array ? v : new Uint8Array(v));
 const isQuietErr = (err) =>
   err?.message === "cancelled" || err?.message === "superseded";
+
+// Copy for images `claimImagesForNote` had to skip. Deliberately says the text
+// WAS saved: the whole point of making these non-blocking is that a picture
+// problem must never look like, or become, lost writing.
+const imageWarning = (conflictIds, orphanIds) => {
+  const parts = [];
+  if (conflictIds.length) {
+    parts.push(
+      conflictIds.length === 1
+        ? "An image here belongs to another note, so it won't display in this one. Copying encrypted images between notes isn't supported — add it to this note directly."
+        : `${conflictIds.length} images here belong to other notes, so they won't display in this one. Copying encrypted images between notes isn't supported — add them to this note directly.`,
+    );
+  }
+  if (orphanIds.length) {
+    parts.push(
+      orphanIds.length === 1
+        ? "An image in this note lost its key when the page reloaded and can't be shown again. Remove it or add it again."
+        : `${orphanIds.length} images in this note lost their keys when the page reloaded and can't be shown again. Remove them or add them again.`,
+    );
+  }
+  if (!parts.length) return null;
+  return `${parts.join(" ")} Your text was saved.`;
+};
 
 export function useNoteSession({
   markdown,
@@ -51,6 +83,9 @@ export function useNoteSession({
   const isSavingRef = useRef(false);
   const idleTimerRef = useRef(null);
   const debounceTimerRef = useRef(null);
+  // Last image warning `persistNote` surfaced, so a note that permanently
+  // carries an unclaimable image toasts once, not once per autosave tick.
+  const imageWarnRef = useRef(null);
 
   const [saveStatus, setSaveStatus] = useState("idle");
   const [unlockError, setUnlockError] = useState(null);
@@ -109,9 +144,8 @@ export function useNoteSession({
     [askPassphrase, folders, folderName],
   );
 
-  const persistNote = useCallback(
+  const persistNoteInner = useCallback(
     async (key, salt, folderId = null) => {
-      if (isSavingRef.current) return false;
       if (!markdown.trim() || !title.trim()) return false;
 
       isSavingRef.current = true;
@@ -125,15 +159,6 @@ export function useNoteSession({
 
         const existingNote = currentId ? await getNote(currentId) : null;
 
-        // GC images that were removed from the note since last save.
-        if (existingNote?.imageIds?.length) {
-          const stillReferenced = new Set(imageIds);
-          const removed = existingNote.imageIds.filter(
-            (id) => !stillReferenced.has(id),
-          );
-          await Promise.all(removed.map((id) => deleteImage(id)));
-        }
-
         const id = currentId || uuid4();
         // An existing note never changes folders on a plain save; a brand-new
         // one is filed into whichever folder the sidebar has focused.
@@ -141,19 +166,73 @@ export function useNoteSession({
           ? existingNote.folderId || null
           : folderId;
 
-        await saveNote({
-          id,
-          ciphertext,
-          iv,
-          salt,
-          title: trimmedTitle,
-          titleCiphertext,
-          titleIv,
-          imageIds,
-          folderId: targetFolderId,
-          createdAt: existingNote?.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
+        // Images that were removed from the note since the last save. Their
+        // blobs are GC'd inside the write transaction below rather than
+        // deleted here — one fewer await on the autosave path, and the note
+        // can no longer land without its GC (or vice versa).
+        const previousIds = new Set(existingNote?.imageIds || []);
+        const stillReferenced = new Set(imageIds);
+        const removedIds = [...previousIds].filter(
+          (imageId) => !stillReferenced.has(imageId),
+        );
+
+        // Only images NEW to this note need touching: an image already listed
+        // on the stored record is already wrapped under this key and already
+        // owned by this note. That keeps the steady-state autosave (no image
+        // changes) at exactly the same number of awaits as before — the
+        // delete/save race the comments in `finalizeDelete` and
+        // NoteList.removeNote guard against does not get any wider.
+        const addedIds = imageIds.filter(
+          (imageId) => !previousIds.has(imageId),
+        );
+        const {
+          records: imageRecords,
+          conflictIds,
+          orphanIds,
+        } = await claimImagesForNote(addedIds, id, key);
+
+        // Images this note couldn't take ownership of are dropped from the
+        // record's `imageIds` — but NOT from `removedIds` above, which is
+        // computed against the full markdown set so nothing still referenced
+        // gets GC'd. Excluding them means a later delete of this note can't
+        // destroy another note's image, and an orphan stays sweepable instead
+        // of being pinned forever by a reference nothing can open.
+        const unclaimable = new Set([...conflictIds, ...orphanIds]);
+        const storedImageIds = unclaimable.size
+          ? imageIds.filter((imageId) => !unclaimable.has(imageId))
+          : imageIds;
+
+        await saveNoteWithImages(
+          {
+            id,
+            ciphertext,
+            iv,
+            salt,
+            title: trimmedTitle,
+            titleCiphertext,
+            titleIv,
+            imageIds: storedImageIds,
+            folderId: targetFolderId,
+            createdAt: existingNote?.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          imageRecords,
+          removedIds,
+        );
+
+        // Committed: the wrapped copies are on disk, so the in-memory CEKs are
+        // redundant. Only after `tx.done`, never before. Orphans have no CEK to
+        // release and conflicts' CEKs belong to their owning note, so neither
+        // is in this set.
+        releaseSessionKeys(imageRecords.map((record) => record.id));
+
+        // The save STOOD; this is advisory. Deduped by message so a note that
+        // permanently carries a foreign image doesn't toast once per keystroke.
+        const warning = imageWarning(conflictIds, orphanIds);
+        if (warning !== imageWarnRef.current) {
+          imageWarnRef.current = warning;
+          if (warning) toast.error(warning);
+        }
 
         sessionFolderIdRef.current = targetFolderId;
         setCurrentId(id);
@@ -172,6 +251,38 @@ export function useNoteSession({
     [markdown, title, currentId, setCurrentId, setNotes],
   );
 
+  // Cooperative re-entrancy guard. A second save can't run concurrently with a
+  // first — but it must not report "done" while the first is still mid-flight
+  // either. Every caller treats the return value as "the flush is complete",
+  // and on a folder note two `lock()` calls genuinely race: `folders.lockAll()`
+  // queues `setKeys({})`, the awaited lock #1 starts a save, React flushes the
+  // state, and the folder-teardown effect fires lock #2. If #2 returned
+  // immediately it would run `lockKeepSelected` -> `revokeAllImageUrls()` and
+  // clear the session CEK registry out from under #1's `claimImagesForNote`,
+  // which would then classify a just-pasted image as an orphan and drop it.
+  // So the loser awaits the winner instead of skipping ahead.
+  const savingPromiseRef = useRef(null);
+  const persistNote = useCallback(
+    async (key, salt, folderId = null) => {
+      if (isSavingRef.current) {
+        try {
+          await savingPromiseRef.current;
+        } catch {
+          // The running save reports its own error to its own caller.
+        }
+        return false;
+      }
+      const p = persistNoteInner(key, salt, folderId);
+      savingPromiseRef.current = p;
+      return p;
+    },
+    [persistNoteInner],
+  );
+
+  // The last error text autoSave surfaced, so a save that keeps failing for
+  // the same reason toasts once instead of once per debounce tick.
+  const autoSaveErrorRef = useRef(null);
+
   const autoSave = useCallback(async () => {
     if (!isUnlocked()) return;
     try {
@@ -180,13 +291,28 @@ export function useNoteSession({
         sessionSaltRef.current,
         sessionFolderIdRef.current,
       );
-    } catch {
-      // swallow — status indicator already shows "dirty"
+      autoSaveErrorRef.current = null;
+    } catch (err) {
+      // Crypto/consistency failures used to be swallowed entirely here, on the
+      // theory that the "Unsaved" pill said enough. It doesn't for an image
+      // that can't be claimed (one copied in from another note, or one whose
+      // key died with a reload): the note simply stops saving and the pill
+      // gives no reason. Surface the message, once per distinct cause.
+      const message = err?.message;
+      if (message && !isQuietErr(err) && autoSaveErrorRef.current !== message) {
+        autoSaveErrorRef.current = message;
+        toast.error(message);
+      }
     }
   }, [persistNote, isUnlocked]);
 
   // Wipe everything in memory. Always safe to call.
+  //
+  // `revokeAllImageUrls` is part of "everything": a decrypted image lives on as
+  // a `blob:` URL that stays fetchable until it is revoked, and the session
+  // CEK registry holds keys for images an abandoned draft uploaded.
   const wipeSession = useCallback(() => {
+    revokeAllImageUrls();
     sessionKeyRef.current = null;
     sessionSaltRef.current = null;
     sessionFolderIdRef.current = null;
@@ -203,6 +329,7 @@ export function useNoteSession({
   // memory, but keep `currentId` so the note stays selected and the user can
   // re-enter their passphrase to resume editing.
   const lockKeepSelected = useCallback(() => {
+    revokeAllImageUrls();
     sessionKeyRef.current = null;
     sessionSaltRef.current = null;
     sessionFolderIdRef.current = null;
@@ -299,11 +426,14 @@ export function useNoteSession({
       // responsive; the dirty diff that results triggers an autoSave which
       // re-encrypts the lighter form so future unlocks skip this work.
       const { markdown: rehydrated, changed: rehydratedChanged } =
-        await rehydrateInlineImages(decrypted);
+        await rehydrateInlineImages(decrypted, key, selectedNote.id);
 
       sessionKeyRef.current = key;
       sessionSaltRef.current = salt;
       sessionFolderIdRef.current = folderId;
+      // New note in the editor: whatever image warning the last one was
+      // suppressing doesn't apply to this one.
+      imageWarnRef.current = null;
       lastSavedRef.current = {
         markdown: rehydratedChanged ? decrypted : rehydrated,
         title: decryptedTitle,
@@ -357,6 +487,9 @@ export function useNoteSession({
         }
       }
 
+      // The outgoing note's decrypted images must not follow us to the next
+      // one: a `blob:` URL outlives the key that produced it.
+      revokeAllImageUrls();
       sessionKeyRef.current = null;
       sessionSaltRef.current = null;
       sessionFolderIdRef.current = null;
@@ -397,11 +530,28 @@ export function useNoteSession({
       if (!newPassphrase || !newPassphrase.trim()) {
         throw new Error("Enter a new passphrase.");
       }
+      // Disarm any pending autosave before we start. `deriveKey` alone is a
+      // ~300ms window; a debounce timer armed before this dialog opened would
+      // otherwise fire inside it and re-encrypt the note under the key we are
+      // replacing — landing after the re-key and leaving a note the OLD
+      // passphrase opens whose image CEKs are wrapped under the new one.
+      clearTimeout(debounceTimerRef.current);
       const note = await getNote(currentId);
       if (!note) throw new Error("Note not found.");
       if (note.folderId) {
         throw new Error("Notes in a folder share the folder passphrase.");
       }
+
+      // Flush FIRST, under the key still in memory. An image pasted since the
+      // last save exists only in the live `markdown` and in the session CEK
+      // registry — it is absent from the stored `imageIds`, so re-wrapping off
+      // that list would skip it and the new passphrase would open the text but
+      // not the picture. Saving first wraps those CEKs under the old key and
+      // lands their ids, so the re-wrap below covers everything.
+      if (isDirty()) {
+        await persistNote(sessionKeyRef.current, sessionSaltRef.current, null);
+      }
+      const flushed = (await getNote(currentId)) || note;
 
       const trimmedTitle = (title || "").trim();
       const newSalt = generateSalt();
@@ -410,16 +560,37 @@ export function useNoteSession({
       const { ciphertext: titleCiphertext, iv: titleIv } =
         await encryptContent(trimmedTitle, newKey);
 
-      await saveNote({
-        ...note,
-        ciphertext,
-        iv,
-        salt: newSalt,
-        title: trimmedTitle,
-        titleCiphertext,
-        titleIv,
-        updatedAt: new Date().toISOString(),
-      });
+      // Root-note equivalent of the folder re-key's image step: this note's
+      // image CEKs are wrapped under the key the OLD passphrase derived, so
+      // without re-wrapping them the new passphrase opens the text and nothing
+      // else. All crypto first, then one transaction.
+      const rewrapped = await rewrapImagesForKey(
+        flushed.imageIds || [],
+        sessionKeyRef.current,
+        newKey,
+      );
+
+      await saveNoteWithImages(
+        {
+          ...flushed,
+          ciphertext,
+          iv,
+          salt: newSalt,
+          title: trimmedTitle,
+          titleCiphertext,
+          titleIv,
+          updatedAt: new Date().toISOString(),
+        },
+        rewrapped,
+      );
+      // The cached object URLs were minted under the old key; they are still
+      // valid images, but the cache is keyed by image id and nothing else, so
+      // dropping them keeps "what's in memory" honest after a re-key.
+      //
+      // URLs only. NOT `revokeAllImageUrls`: this is a re-key, not a lock — the
+      // session stays live, and clearing its CEK registry here would destroy
+      // the keys of any image still waiting to be wrapped.
+      revokeImageUrls();
 
       sessionKeyRef.current = newKey;
       sessionSaltRef.current = newSalt;
@@ -427,7 +598,7 @@ export function useNoteSession({
       setNotes(await getAllNotes());
       setSaveStatus("saved");
     },
-    [currentId, isUnlocked, markdown, title, setNotes],
+    [currentId, isUnlocked, isDirty, persistNote, markdown, title, setNotes],
   );
 
   const saveManual = useCallback(async () => {
@@ -513,6 +684,7 @@ export function useNoteSession({
   const finalizeDelete = useCallback(async () => {
     clearTimeout(debounceTimerRef.current);
     clearTimeout(idleTimerRef.current);
+    revokeAllImageUrls();
     sessionKeyRef.current = null;
     sessionSaltRef.current = null;
     sessionFolderIdRef.current = null;

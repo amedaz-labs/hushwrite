@@ -280,27 +280,47 @@ const NoteList = ({
     if (claimedImportRef.current === pending.token) return;
     claimedImportRef.current = pending.token;
     (async () => {
+      // Declared out here so the abandon path below can clean them up.
+      let imageIds = [];
       try {
         const now = new Date().toISOString();
-        const { ciphertext, iv } = await encryptContent(
+        // Minted up front so the image records can be stamped with their owner
+        // as they are written. `persistNote` only claims ids that are NEW to a
+        // note's stored record, so an image that lands unowned here stays
+        // unowned forever — outside the conflict guard, and free for a second
+        // note to silently take over without re-wrapping.
+        const noteId = uuid4();
+        // Only NOW is there a key to encrypt images under — the parked
+        // markdown still carries them as data URIs. This writes image records
+        // before the claim re-check below, so the abandon path deletes them.
+        const rehydrated = await rehydrateInlineImages(
           pending.markdown,
           entry.key,
+          noteId,
         );
+        imageIds = rehydrated.imageIds || [];
+        const markdown = rehydrated.markdown || "";
+
+        const { ciphertext, iv } = await encryptContent(markdown, entry.key);
         const { ciphertext: titleCiphertext, iv: titleIv } =
           await encryptContent(pending.title, entry.key);
         // A lock during the encryption window nulls the claim and tells the
         // user the import was discarded. Honour that instead of writing a note
-        // they were told they'd have to re-import.
-        if (claimedImportRef.current !== pending.token) return;
+        // they were told they'd have to re-import — and take the image records
+        // with it, or they linger as unreferenced blobs nothing will ever GC.
+        if (claimedImportRef.current !== pending.token) {
+          await Promise.all(imageIds.map((id) => deleteImage(id)));
+          return;
+        }
         await saveNote({
-          id: uuid4(),
+          id: noteId,
           ciphertext,
           iv,
           salt: entry.salt,
           title: "",
           titleCiphertext,
           titleIv,
-          imageIds: pending.imageIds || [],
+          imageIds,
           folderId: pending.folderId,
           createdAt: pending.createdAt || now,
           updatedAt: now,
@@ -312,6 +332,9 @@ const NoteList = ({
       } catch (err) {
         claimedImportRef.current = null;
         setPendingImport(null);
+        // Same reason as the abandon path: an image written before the failure
+        // has no note pointing at it.
+        await Promise.all(imageIds.map((id) => deleteImage(id))).catch(() => {});
         toast.error(err.message || "Could not import");
       }
     })();
@@ -432,7 +455,9 @@ const NoteList = ({
       }
 
       const blob = await serializeFolder(
-        { name: folder.name, notes: decrypted },
+        // `imageKey` is the folder key: every image in the bundle is wrapped
+        // under it, and without it they inline as nothing at all.
+        { name: folder.name, notes: decrypted, imageKey: entry.key },
         { encrypted, passphrase },
       );
       const filename = downloadHwrite(blob, folder.name);
@@ -462,14 +487,23 @@ const NoteList = ({
     const { folder, key, salt } = await folders.createFolder(name, passphrase);
     const now = new Date().toISOString();
     for (const note of incoming) {
-      const { markdown, imageIds } = await rehydrateInlineImages(note.markdown);
+      // The folder key is already in hand, so the bundle's images are written
+      // encrypted on the way in — never as plaintext blobs. The id is minted
+      // first so each image record is stamped with its owner on write;
+      // `persistNote` never revisits ids already listed on a stored note.
+      const noteId = uuid4();
+      const { markdown, imageIds } = await rehydrateInlineImages(
+        note.markdown,
+        key,
+        noteId,
+      );
       const { ciphertext, iv } = await encryptContent(markdown, key);
       const { ciphertext: titleCiphertext, iv: titleIv } = await encryptContent(
         note.title,
         key,
       );
       await saveNote({
-        id: uuid4(),
+        id: noteId,
         ciphertext,
         iv,
         salt,
@@ -540,7 +574,7 @@ const NoteList = ({
         toBytes(note.titleIv),
       );
     }
-    return { title, markdown };
+    return { title, markdown, imageKey: entry.key };
   };
 
   // Info for one row. When the sidebar can decrypt the note it shows real
@@ -1010,7 +1044,10 @@ const NoteList = ({
                 toast.success(`Imported "${parsed.title}" — locked until opened`);
               } else {
                 // Plaintext at the root: load into the editor as a draft so
-                // the user can save it under their own passphrase.
+                // the user can save it under their own passphrase. No key
+                // exists yet, so `rehydrateInlineImages` parks each image's
+                // content key in the session registry; the draft's first save
+                // wraps them under whatever passphrase the user picks.
                 const raw = await decryptHwrite(parsed, undefined);
                 const result = await rehydrateInlineImages(raw);
                 setImportState(null);
@@ -1034,22 +1071,25 @@ const NoteList = ({
             } else {
               raw = await decryptHwrite(parsed, undefined);
             }
-            const result = await rehydrateInlineImages(raw);
-            const markdown = result.markdown || "";
-            const imageIds = result.imageIds || [];
-
             const entry = getFolderKey(destination);
             if (!entry) {
               // Defer until the user unlocks that folder; the effect above
               // flushes it once the key is available.
+              //
+              // The data-URI markdown is parked AS-IS, deliberately: images
+              // are encrypted under the destination folder's key, and that key
+              // does not exist yet. Rehydrating here would write every image
+              // to disk as a plaintext blob — the exact thing this change
+              // exists to stop. The flush effect rehydrates once it has the
+              // key. The cost is that a heavy import sits in memory as base64
+              // until then, which the lock-epoch effect already discards.
               setPendingImport({
                 // Opaque id so the flush effect can claim this import without
                 // holding on to the object (and its decrypted markdown).
                 token: uuid4(),
                 folderId: destination,
-                markdown,
+                markdown: raw,
                 title: titleText,
-                imageIds,
                 createdAt: parsed.created,
               });
               setImportState(null);
@@ -1060,13 +1100,22 @@ const NoteList = ({
               return;
             }
 
+            // Minted before the rehydrate so each image record is stamped with
+            // its owner on write — `persistNote` only claims ids new to a
+            // note's stored record, so an unowned image here would stay
+            // unowned for the life of the note.
+            const noteId = uuid4();
+            const result = await rehydrateInlineImages(raw, entry.key, noteId);
+            const markdown = result.markdown || "";
+            const imageIds = result.imageIds || [];
+
             const now = new Date().toISOString();
             const { ciphertext, iv } = await encryptContent(markdown, entry.key);
             const { ciphertext: titleCiphertext, iv: titleIv } =
               await encryptContent(titleText, entry.key);
 
             await saveNote({
-              id: uuid4(),
+              id: noteId,
               ciphertext,
               iv,
               salt: entry.salt,

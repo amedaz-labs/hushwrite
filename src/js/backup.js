@@ -113,7 +113,13 @@ async function blobToBase64(blob) {
 
 function base64ToBlob(b64, mime) {
   const bytes = base64ToArray(b64);
-  return new Blob([bytes], { type: mime || "application/octet-stream" });
+  // `base64ToArray("")` returns null, and `new Blob([null])` is NOT an empty
+  // Blob — it stringifies to the 4-byte literal "null". A missing/empty
+  // ciphertext must restore as zero bytes, not as garbage that decrypts to a
+  // tamper error.
+  return new Blob(bytes ? [bytes] : [], {
+    type: mime || "application/octet-stream",
+  });
 }
 
 // ---------- Note (de)serialization ----------
@@ -186,7 +192,31 @@ function wireToFolder(wire) {
   };
 }
 
+// Two image record shapes travel over the wire, and both must keep working
+// forever — there is no migration from the legacy plaintext form.
+//   v: 1  -> AES-GCM ciphertext plus the CEK wrapped under the owning note's
+//            key. The server sees only opaque bytes, same as a note.
+//   legacy -> `{ id, blob }`, uploaded base64'd in the clear.
+// A wire record with no `v` is legacy, so old snapshots round-trip unchanged.
 async function imageToWire(image) {
+  if (image?.v === 1) {
+    const data =
+      image.ciphertext instanceof Blob
+        ? await blobToBase64(image.ciphertext)
+        : arrayToBase64(image.ciphertext);
+    return {
+      id: image.id,
+      v: 1,
+      data: data || "",
+      iv: arrayToBase64(image.iv),
+      wrapped_key: image.wrappedKey ? arrayToBase64(image.wrappedKey) : null,
+      wrap_iv: image.wrapIv ? arrayToBase64(image.wrapIv) : null,
+      mime: image.mime || "application/octet-stream",
+      size: image.size ?? null,
+      owner_note_id: image.ownerNoteId || null,
+      created_at: image.createdAt || null,
+    };
+  }
   const blob = image.blob;
   const mime = blob?.type || "application/octet-stream";
   const data = blob ? await blobToBase64(blob) : "";
@@ -194,6 +224,22 @@ async function imageToWire(image) {
 }
 
 function wireToImage(wire) {
+  if (wire?.v === 1) {
+    return {
+      id: wire.id,
+      v: 1,
+      // Kept as a Blob, exactly as `putImage` writes it: IDB materializes a
+      // typed array into the heap on every `get`, a Blob stays a lazy handle.
+      ciphertext: base64ToBlob(wire.data, "application/octet-stream"),
+      iv: base64ToArray(wire.iv),
+      wrappedKey: wire.wrapped_key ? base64ToArray(wire.wrapped_key) : null,
+      wrapIv: wire.wrap_iv ? base64ToArray(wire.wrap_iv) : null,
+      mime: wire.mime || "application/octet-stream",
+      size: wire.size ?? null,
+      ownerNoteId: wire.owner_note_id || null,
+      createdAt: wire.created_at || null,
+    };
+  }
   return { id: wire.id, blob: base64ToBlob(wire.data, wire.mime) };
 }
 

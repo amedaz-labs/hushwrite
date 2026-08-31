@@ -1,12 +1,11 @@
 
-import { v4 as uuid4 } from "uuid";
 import {
   deriveKey,
   encryptContent,
   decryptContent,
   generateSalt,
 } from "./crypto";
-import { getImage, saveImage } from "./db";
+import { loadImageBlob, putImage } from "./imageStore";
 
 // 1.0 = a single note, `content` is markdown.
 // 2.0 = a whole folder, `content` is JSON `{ notes: [...] }`. Same envelope,
@@ -43,7 +42,10 @@ const sha256Hex = async (str) => {
 
 const IDB_IMG_REGEX = /(!\[[^\]]*\]\()idb:\/\/([0-9a-f-]+)(\))/gi;
 
-const inlineImagesForExport = async (markdown) => {
+// `imageKey` is the key that opens the note the markdown came from — the same
+// one `resolveKeyForNote` returns. `loadImageBlob` handles both record shapes,
+// so a legacy plaintext blob still inlines with `imageKey` left null.
+const inlineImagesForExport = async (markdown, imageKey = null) => {
   const matches = [...markdown.matchAll(IDB_IMG_REGEX)];
   if (!matches.length) return markdown;
 
@@ -51,8 +53,8 @@ const inlineImagesForExport = async (markdown) => {
   for (const m of matches) {
     const id = m[2];
     if (cache.has(id)) continue;
-    const entry = await getImage(id);
-    if (!entry) {
+    const blob = await loadImageBlob(id, imageKey);
+    if (!blob) {
       cache.set(id, null);
       continue;
     }
@@ -60,7 +62,7 @@ const inlineImagesForExport = async (markdown) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result);
       reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(entry.blob);
+      reader.readAsDataURL(blob);
     });
     cache.set(id, dataUrl);
   }
@@ -74,9 +76,9 @@ const inlineImagesForExport = async (markdown) => {
 // Inverse of inlineImagesForExport. Imported notes carry images as inline
 // `data:image/...;base64,...` URIs in the markdown. Leaving those in place
 // makes the editor lag badly because every keystroke re-renders megabytes of
-// base64. We extract each data URI, persist the bytes to the images store as
-// a normal blob, and rewrite the markdown to use lightweight `idb://uuid`
-// references that IdbImage resolves on demand.
+// base64. We extract each data URI, persist the bytes to the images store
+// (encrypted, via `putImage`), and rewrite the markdown to use lightweight
+// `idb://uuid` references that the editor resolves on demand.
 const DATA_URL_IMG_REGEX =
   /(!\[[^\]]*\]\()(data:image\/[a-zA-Z0-9+.-]+;base64,[A-Za-z0-9+/=]+)(\))/g;
 
@@ -90,7 +92,15 @@ const dataUrlToBlob = (dataUrl) => {
   return new Blob([bytes], { type: mime });
 };
 
-export const rehydrateInlineImages = async (markdown) => {
+// `key` opens the note these images belong to. Pass `null` only when there
+// isn't one yet (a plaintext import landing in the editor as an unsaved
+// draft) — the CEK then waits in the session registry until that draft's
+// first save wraps it.
+export const rehydrateInlineImages = async (
+  markdown,
+  key = null,
+  ownerNoteId = null,
+) => {
   if (!markdown || !markdown.includes("data:image/")) {
     return { markdown: markdown || "", imageIds: [], changed: false };
   }
@@ -104,8 +114,7 @@ export const rehydrateInlineImages = async (markdown) => {
   for (const m of matches) {
     const dataUrl = m[2];
     if (cache.has(dataUrl)) continue;
-    const id = uuid4();
-    await saveImage({ id, blob: dataUrlToBlob(dataUrl) });
+    const { id } = await putImage(dataUrlToBlob(dataUrl), key, ownerNoteId);
     cache.set(dataUrl, id);
     newIds.push(id);
   }
@@ -150,14 +159,14 @@ const sealEnvelope = async (envelope, payload, { encrypted, passphrase }) => {
  * produce an encrypted file; otherwise the file holds raw markdown.
  */
 export const serializeNote = async (
-  { title, markdown, createdAt, modifiedAt },
+  { title, markdown, createdAt, modifiedAt, imageKey = null },
   { encrypted, passphrase } = {},
 ) => {
   if (encrypted && !passphrase) {
     throw new Error("Passphrase required for encrypted export.");
   }
 
-  const inlinedMarkdown = await inlineImagesForExport(markdown || "");
+  const inlinedMarkdown = await inlineImagesForExport(markdown || "", imageKey);
   const now = new Date().toISOString();
 
   return sealEnvelope(
@@ -180,7 +189,7 @@ export const serializeNote = async (
  * passphrase, mirroring how the folder works inside the app.
  */
 export const serializeFolder = async (
-  { name, notes = [] },
+  { name, notes = [], imageKey = null },
   { encrypted, passphrase } = {},
 ) => {
   if (encrypted && !passphrase) {
@@ -192,7 +201,7 @@ export const serializeFolder = async (
   for (const note of notes) {
     exported.push({
       title: (note.title || "Untitled").trim() || "Untitled",
-      content: await inlineImagesForExport(note.markdown || ""),
+      content: await inlineImagesForExport(note.markdown || "", imageKey),
       created: note.createdAt || now,
       modified: note.modifiedAt || now,
     });

@@ -5,6 +5,7 @@ import NoteList from "./components/NoteList";
 import Markdown from "./components/Markdown";
 import BackupPanel from "./components/BackupPanel";
 import { getAllNotes, migrateToFolders } from "./js/db";
+import { sweepOrphans } from "./js/imageStore";
 import { useFolders } from "./lib/folders";
 import { isLoggedIn, clearAuth } from "./js/api";
 import { getCloudState, resetBackupPointers } from "./js/backup";
@@ -83,6 +84,13 @@ const App = () => {
     (async () => {
       await migrateToFolders();
       await loadNotes();
+      // An image uploaded into a draft that was never saved has a content key
+      // that only ever existed in memory, so after this reload it is bytes
+      // nothing can open. Drop them. Only ever touches encrypted records with
+      // no wrapped key — legacy plaintext images are never swept.
+      sweepOrphans().catch((err) =>
+        console.error("[imageStore] orphan sweep failed:", err),
+      );
     })();
   }, []);
 
