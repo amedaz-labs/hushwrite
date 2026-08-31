@@ -8,7 +8,7 @@ import { saveImage, getImage } from "@/js/db";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame-dark.css";
 
-const EditorInner = ({ markdown, onChange }) => {
+const EditorInner = ({ markdown, onChange, lockEpoch = 0 }) => {
   const onChangeRef = useRef(onChange);
   const externalMdRef = useRef(markdown);
   const blobCache = useRef(new Map());
@@ -171,14 +171,30 @@ const EditorInner = ({ markdown, onChange }) => {
     };
   }, []);
 
+  // ...and on every lock. Unmount alone is not enough: locking does not unmount
+  // this editor, it just blanks `markdown`. Every `blob:` URL minted for the
+  // open note therefore stayed live and fetchable after an idle lock — paste one
+  // into the address bar with the session locked and the image still loads.
+  // Image bytes are stored unencrypted, so revoking is the only thing standing
+  // between a locked session and its pictures.
+  useEffect(() => {
+    const cache = blobCache.current;
+    cache.forEach((url) => URL.revokeObjectURL(url));
+    cache.clear();
+  }, [lockEpoch]);
+
   return <Milkdown />;
 };
 
-const MilkdownEditor = ({ markdown, onChange }) => {
+const MilkdownEditor = ({ markdown, onChange, lockEpoch }) => {
   return (
     <MilkdownProvider>
       <div className="milkdown-wrapper">
-        <EditorInner markdown={markdown} onChange={onChange} />
+        <EditorInner
+          markdown={markdown}
+          onChange={onChange}
+          lockEpoch={lockEpoch}
+        />
       </div>
     </MilkdownProvider>
   );

@@ -1143,6 +1143,7 @@ const Markdown = ({
                 <MilkdownEditor
                   markdown={markdown}
                   onChange={(val) => setMarkdown(val || "")}
+                  lockEpoch={folders.lockEpoch}
                 />
               </div>
             </div>
