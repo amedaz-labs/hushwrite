@@ -1,14 +1,18 @@
 import { openDB } from "idb";
 
 const DB_NAME = "hushwrite-db";
-// Deliberately still 3. Encrypted image records (`{ v: 1, ciphertext, iv,
-// wrappedKey, wrapIv, ... }`) coexist with the legacy plaintext shape
-// (`{ id, blob }`) in the SAME store, with no new store, no index and no
-// migration — every reader branches on `record.v === 1`. A version bump would
-// buy nothing and cost something real: under `registerType: "autoUpdate"` an
-// older cached bundle can still be running, and its `openDB(..., 3)` would
-// throw `VersionError` against a v4 database.
-const DB_VERSION = 3;
+// Encrypted image records (`{ v: 1, ciphertext, iv, wrappedKey, wrapIv, ... }`)
+// coexist with the legacy plaintext shape (`{ id, blob }`) in the SAME store,
+// with no new store, no index and no migration — every reader branches on
+// `record.v === 1`. So 4 buys nothing structurally.
+//
+// It is still 4, and must never go back down. IndexedDB refuses to open a
+// database at a LOWER version than the one on disk: any profile that has run a
+// build with 4 gets `VersionError: The requested version (3) is less than the
+// existing version (4)` on every call, which bricks the app for that user with
+// their notes still on disk. A version number is a one-way ratchet per profile.
+// If you need a schema change, bump to 5 — never decrement.
+const DB_VERSION = 4;
 const NOTES_STORE = "notes";
 const IMAGES_STORE = "images";
 const FOLDERS_STORE = "folders";
