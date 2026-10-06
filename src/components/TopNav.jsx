@@ -235,9 +235,9 @@ const AboutPage = ({ open, onClose }) => {
       </div>
       <div className="flex flex-1 flex-col items-center justify-center px-6 pb-20">
         <img
-          src="/panda-192.png"
+          src="/logo.svg"
           alt="Hushwrite"
-          className="mb-6 h-24 w-24 rounded-full object-cover shadow-lg"
+          className="mb-6 h-24 w-24 rounded-[22%] shadow-lg"
         />
         <h1 className="mb-2 text-3xl font-bold tracking-tight text-vault-primary">Hushwrite</h1>
         <p className="mb-8 text-sm text-outline">Privacy-first encrypted notes</p>
@@ -418,9 +418,9 @@ const TopNav = ({ isUnlocked, unlockedFolderCount = 0, onLock, cloudState = "loa
         </button>
         <div className="flex min-w-0 items-center gap-2">
           <img
-            src="/panda-192.png"
+            src="/logo.svg"
             alt=""
-            className="h-6 w-6 shrink-0 rounded-full object-cover"
+            className="h-6 w-6 shrink-0"
           />
           <span className="truncate text-[14.5px] font-semibold tracking-tight text-on-surface">
             Hushwrite
